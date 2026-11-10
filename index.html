@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171923">
+  <meta name="description" content="©Mirror — персональная онлайн-библиотека и электронная читалка для FB2, EPUB, PDF, TXT и HTML.">
+  <title>Моя библиотека — ©Mirror</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs" type="module"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Моя библиотека">
+      <span class="brand-mark">M</span><span><b>Моя библиотека</b><small>©Mirror · личное книжное пространство</small></span>
+    </a>
+    <div class="top-actions">
+      <button id="themeBtn" class="icon-btn" title="Сменить тему" aria-label="Сменить тему">◐</button>
+      <button id="addTopBtn" class="primary">＋ Добавить книги</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="side-label">БИБЛИОТЕКА</div>
+      <button class="nav-item active" data-filter="all">▤ <span>Все книги</span><b id="allCount">0</b></button>
+      <button class="nav-item" data-filter="reading">◷ <span>Читаю сейчас</span><b id="readingCount">0</b></button>
+      <button class="nav-item" data-filter="finished">✓ <span>Прочитано</span><b id="finishedCount">0</b></button>
+      <button class="nav-item" data-filter="favorites">♡ <span>Избранное</span><b id="favoriteCount">0</b></button>
+      <div class="side-label side-label-spaced">ХРАНЕНИЕ</div>
+      <div class="storage-card"><span class="storage-icon">▣</span><div><b>На этом устройстве</b><small>Книги хранятся локально в браузере</small></div></div>
+      <p class="privacy-note">Ваши файлы не отправляются на сервер этой версии приложения.</p>
+      <div class="side-footer">©Mirror</div>
+    </aside>
+
+    <section class="content">
+      <section id="libraryView">
+        <div class="welcome">
+          <div><p class="eyebrow">ВАШЕ ЛИЧНОЕ СОБРАНИЕ</p><h1>Книги, к которым хочется возвращаться.</h1><p>Добавляйте файлы, продолжайте чтение с сохранённого места и собирайте свою библиотеку.</p></div>
+          <div class="welcome-art" aria-hidden="true"><span>✧</span><div class="book book-one"></div><div class="book book-two"></div><div class="book book-three"></div></div>
+        </div>
+        <div class="toolbar">
+          <div><h2 id="sectionTitle">Все книги</h2><p id="sectionSubtitle">Ваше собрание в одном месте</p></div>
+          <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Найти книгу или автора…"></label>
+        </div>
+        <div id="dropZone" class="drop-zone">
+          <input id="fileInput" type="file" multiple accept=".fb2,.fb2.zip,.epub,.pdf,.txt,.html,.htm,application/pdf,text/plain,text/html,application/epub+zip" hidden>
+          <div class="upload-symbol">↥</div><div><b>Перетащите книги сюда</b><span>или <button id="chooseFiles" class="text-btn">выберите файлы</button></span><small>FB2 · EPUB · PDF · TXT · HTML</small></div>
+        </div>
+        <div id="bookGrid" class="book-grid"></div>
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon">▤</div><h3>Ваша библиотека пока пуста</h3><p>Добавьте первую книгу — она появится здесь.</p><button id="emptyAddBtn" class="primary">＋ Добавить книгу</button>
+        </div>
+      </section>
+
+      <section id="readerView" class="reader-view hidden">
+        <div class="reader-toolbar">
+          <button id="backBtn" class="secondary">← Библиотека</button>
+          <div class="reader-book-title" id="readerBookTitle">Книга</div>
+          <div class="reader-controls">
+            <button id="fontDown" class="icon-btn" title="Уменьшить шрифт">A−</button>
+            <button id="fontUp" class="icon-btn" title="Увеличить шрифт">A＋</button>
+            <button id="bookmarkBtn" class="icon-btn" title="Добавить закладку">☆</button>
+          </div>
+        </div>
+        <div id="readerMeta" class="reader-meta"></div>
+        <div id="readerContent" class="reader-content"></div>
+        <div id="readerFooter" class="reader-footer">
+          <button id="prevBtn" class="secondary">← Назад</button>
+          <span id="pageStatus">Готово к чтению</span>
+          <button id="nextBtn" class="secondary">Вперёд →</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="detailsDialog" class="modal">
+    <form method="dialog"><button class="modal-close" aria-label="Закрыть">×</button></form>
+    <div id="detailsBody"></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
