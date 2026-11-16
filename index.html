@@ -83,5 +83,11 @@
     <div id="detailsBody"></div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./service-worker.js").catch(console.error);
+  }
+</script>
+  
 </body>
 </html>
