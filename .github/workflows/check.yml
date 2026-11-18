@@ -18,4 +18,5 @@ jobs:
           node --check --input-type=module < js/db.js
           node --check --input-type=module < js/parsers.js
           node --check --input-type=module < js/translation.js
+          node --check --input-type=module < js/document-studio.js
           node --check --input-type=module < worker/google-translate-worker.js
