@@ -645,19 +645,28 @@ async function exportEditedPDF(){
       "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF");
     const PDFDocument=window.PDFLib.PDFDocument;
     const output=await PDFDocument.load(state.activeBook.data.slice(0));
-    for(const [pageNumber,dataUrl] of Object.entries(state.pdfAnnotations)){
+    const editedPages=new Set([...Object.keys(state.pdfAnnotations),...Object.keys(state.pdfImageObjects)]);
+    for(const pageNumber of editedPages){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
-      const sourceImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
+      const dataUrl=state.pdfAnnotations[pageNumber];
       const pageCanvas=document.createElement("canvas");
-      pageCanvas.width=sourceImage.width;pageCanvas.height=sourceImage.height;
-      const pageContext=pageCanvas.getContext("2d");pageContext.drawImage(sourceImage,0,0);
+      let sourceImage=null;
+      if(dataUrl){
+        sourceImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
+        pageCanvas.width=sourceImage.width;pageCanvas.height=sourceImage.height;
+        pageCanvas.getContext("2d").drawImage(sourceImage,0,0);
+      }else{
+        const pdfPage=await state.pdf.getPage(index+1),viewport=pdfPage.getViewport({scale:2});
+        pageCanvas.width=Math.ceil(viewport.width);pageCanvas.height=Math.ceil(viewport.height);
+      }
+      const pageContext=pageCanvas.getContext("2d");
       for(const object of (state.pdfImageObjects[pageNumber]||[])){
         const objectImage=await createImageBitmap(await (await fetch(object.src)).blob());
         pageContext.drawImage(objectImage,object.x*pageCanvas.width,object.y*pageCanvas.height,
           object.w*pageCanvas.width,object.h*pageCanvas.height);
         objectImage.close?.();
       }
-      sourceImage.close?.();
+      sourceImage?.close?.();
       const png=await new Promise(resolve=>pageCanvas.toBlob(resolve,"image/png"));
       const embedded=await output.embedPng(await png.arrayBuffer()),page=output.getPage(index),size=page.getSize();
       page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
