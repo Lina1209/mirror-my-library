@@ -8,6 +8,51 @@ const progress = $("studioProgress");
 const fileInput = $("studioFile");
 const languages = $("studioLanguage");
 
+
+// Page navigation for the fixed document preview window.
+const studioPageNavigation = (() => {
+  const previous = $("studioPrevPage");
+  const next = $("studioNextPage");
+  const counter = $("studioPageCounter");
+  let current = 0;
+  let touchStart = null;
+  const pages = () => [...editor.querySelectorAll(".studio-source-page")];
+  function goTo(index) {
+    const list = pages();
+    if (!list.length) { if(counter) counter.textContent="Страниц пока нет"; return; }
+    current = Math.max(0, Math.min(list.length - 1, index));
+    const page = list[current];
+    editor.scrollTo({top:Math.max(0,page.offsetTop-editor.offsetTop-8),behavior:"smooth"});
+    if(counter) counter.textContent="Страница "+(current+1)+" из "+list.length;
+    if(previous) previous.disabled=current===0;
+    if(next) next.disabled=current===list.length-1;
+  }
+  function refresh(){const list=pages();if(!list.length){if(counter)counter.textContent="Страниц пока нет";return;}goTo(Math.min(current,list.length-1));}
+  previous?.addEventListener("click",()=>goTo(current-1));
+  next?.addEventListener("click",()=>goTo(current+1));
+  editor.addEventListener("touchstart",event=>{
+    if(event.touches.length!==1)return;
+    touchStart={x:event.touches[0].clientX,y:event.touches[0].clientY};
+  },{passive:true});
+  editor.addEventListener("touchend",event=>{
+    if(!touchStart||!event.changedTouches.length)return;
+    const dx=event.changedTouches[0].clientX-touchStart.x;
+    const dy=event.changedTouches[0].clientY-touchStart.y;
+    touchStart=null;
+    if(Math.abs(dx)>65&&Math.abs(dx)>Math.abs(dy)*1.25)goTo(current+(dx<0?1:-1));
+  },{passive:true});
+  editor.addEventListener("keydown",event=>{
+    if(event.altKey&&(event.key==="ArrowRight"||event.key==="ArrowLeft")){
+      event.preventDefault();goTo(current+(event.key==="ArrowRight"?1:-1));
+    }
+    if(event.key==="PageDown"||event.key==="PageUp"){
+      event.preventDefault();goTo(current+(event.key==="PageDown"?1:-1));
+    }
+  });
+  const observer=new MutationObserver(()=>refresh());
+  observer.observe(editor,{childList:true,subtree:true});
+  return {refresh,goTo};
+})();
 function say(message){ status.textContent=message; }
 function escapeHTML(value){ return String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function safeName(value){ return (value||"document").replace(/[^a-z0-9а-яё_-]+/gi,"-").replace(/^-|-$/g,"")||"document"; }
