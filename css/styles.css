@@ -56,3 +56,13 @@ body.dark{color-scheme:dark}
 @media(max-width:600px){.reader-toolbar{padding:10px;gap:6px}.reader-controls{flex-wrap:wrap}.reader-controls .icon-btn{padding:8px}.reader-content{margin:12px auto}.reader-footer{gap:8px;position:sticky;bottom:0;background:var(--panel)}}
 
 .reader-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center}@media(max-width:700px){.reader-controls{gap:4px}.reader-controls .icon-btn{padding:8px 9px;font-size:11px}.reader-toolbar{flex-wrap:wrap}}
+/* Google Cloud Translation panel */
+.translation-toggle{white-space:nowrap}
+.translation-panel{position:fixed;z-index:30;right:4.2%;top:68px;width:min(340px,calc(100vw - 28px));padding:17px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 16px 48px rgba(20,18,35,.2)}
+.translation-panel label{display:block;font-size:11px;font-weight:700;margin:0 0 6px}
+.translation-panel input,.translation-panel select{width:100%;min-width:0;padding:10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit;font-size:12px;margin-bottom:12px}
+.translation-panel-row{margin-top:8px}
+.translation-panel button{width:100%;margin-top:7px}
+.translation-panel p{font-size:11px;line-height:1.5;color:var(--muted);margin:12px 0 0}
+.translation-panel p.translation-error{color:#c44}
+@media(max-width:600px){.translation-panel{right:10px;top:60px}.translation-toggle{padding:9px 10px;font-size:12px}.top-actions{gap:6px}}

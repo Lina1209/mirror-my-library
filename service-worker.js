@@ -1,9 +1,10 @@
-const CACHE = "mirror-library-v3";
+const CACHE = "mirror-library-v4";
 const CORE = [
   "./",
   "./index.html",
   "./css/styles.css",
   "./js/app.js",
+  "./js/translation.js",
   "./js/db.js",
   "./js/parsers.js",
   "./manifest.webmanifest",
