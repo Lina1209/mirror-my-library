@@ -426,13 +426,18 @@ function updatePDFToolButtons(){
   if(state.pdfOverlay)state.pdfOverlay.style.pointerEvents=state.pdfEditTool==="view"?"none":"auto";
 }
 async function restorePDFAnnotationLayer(canvas,dataUrl){
-  const ctx=canvas.getContext("2d");ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(!dataUrl)return;
-  await new Promise(resolve=>{
-    const image=new Image();
-    image.onload=()=>{ctx.drawImage(image,0,0,canvas.width,canvas.height);resolve();};
-    image.onerror=resolve;image.src=dataUrl;
-  });
+  const ctx=canvas.getContext("2d");
+  const ratio=Math.min(window.devicePixelRatio||1,2);
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(dataUrl){
+    await new Promise(resolve=>{
+      const image=new Image();
+      image.onload=()=>{ctx.drawImage(image,0,0,canvas.width,canvas.height);resolve();};
+      image.onerror=resolve;image.src=dataUrl;
+    });
+  }
+  ctx.setTransform(ratio,0,0,ratio,0,0);
 }
 function snapshotPDFAnnotation(){
   if(!state.pdfOverlay||!state.pdf)return;
