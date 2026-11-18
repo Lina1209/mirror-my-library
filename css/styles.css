@@ -84,3 +84,9 @@ body.dark{color-scheme:dark}
 /* Editable tables in Document Studio */
 .studio-editor table{border-collapse:collapse;width:100%;margin:12px 0;table-layout:auto}.studio-editor td,.studio-editor th{border:1px solid var(--line);padding:8px;min-width:65px;vertical-align:top}.studio-editor th{background:var(--accent2);font-weight:700}.studio-editor td:focus,.studio-editor th:focus{outline:2px solid var(--accent)}.studio-editor{overflow-x:auto}
 @media(max-width:600px){.studio-editor table{font-size:13px}.studio-editor td,.studio-editor th{padding:6px;min-width:55px}}
+
+/* PDF editor: text settings and additional overlay tools */
+.pdf-editor-setting{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+.pdf-editor-setting input[type=number]{width:58px;padding:6px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink)}
+.pdf-editor-setting input[type=color]{width:34px;height:30px;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--panel)}
+@media(max-width:600px){.pdf-editor-toolbar{justify-content:flex-start}.pdf-editor-setting{font-size:10px}}
