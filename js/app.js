@@ -6,7 +6,7 @@ const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: 18, currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfEditTool: "view", pdfUndo: {}
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfEditTool: "view", pdfUndo: {}
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -379,6 +379,7 @@ async function renderPDFPage() {
   wrapper.append(overlay);
   $("readerContent").replaceChildren(wrapper);
   state.pdfOverlay = overlay;
+  state.pdfPageCanvas = canvas;
   await restorePDFAnnotationLayer(overlay, state.pdfAnnotations[state.pdfPage]);
   attachPDFAnnotationEvents(overlay);
   ensurePDFEditorControls();
@@ -404,6 +405,9 @@ function ensurePDFEditorControls() {
     button.onclick=()=>{state.pdfEditTool=tool;updatePDFToolButtons();if(tool!=="view")toast("Инструмент: "+label);};
     toolbar.append(button);
   });
+  const ocrEdit=document.createElement("button");
+  ocrEdit.type="button";ocrEdit.className="secondary";ocrEdit.textContent="Распознать строки для исправления";
+  ocrEdit.onclick=recognizePDFPageLines;
   const undo=document.createElement("button");
   undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
   const save=document.createElement("button");
@@ -427,7 +431,7 @@ function ensurePDFEditorControls() {
   const colorInput=document.createElement("input");colorInput.id="pdfTextColor";colorInput.type="color";colorInput.value="#202020";
   colorLabel.append(colorInput);
   note.textContent="Добавляйте текст, рисунки и изображения; «Скрыть область» закрывает фрагмент белой плашкой. Оригинал не меняется.";
-  toolbar.append(imageButton,sizeLabel,colorLabel,undo,save,note);
+  toolbar.append(imageButton,sizeLabel,colorLabel,ocrEdit,undo,save,note);
   $("readerMeta").append(toolbar,imageInput);
   const ocr=document.createElement("button");
   ocr.id="pdfTextBtn";ocr.className="secondary";ocr.textContent="Извлечь текст / OCR";
@@ -511,6 +515,54 @@ function attachPDFAnnotationEvents(canvas){
     persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
   };
   canvas.onpointerup=finish;canvas.onpointercancel=finish;canvas.onlostpointercapture=finish;
+}
+async function recognizePDFPageLines(){
+  if(!state.pdfPageCanvas||!state.pdfOverlay)return;
+  const button=[...document.querySelectorAll("#pdfEditorToolbar button")].find(item=>item.textContent==="Распознать строки для исправления");
+  if(button){button.disabled=true;button.textContent="Распознавание…";}
+  try{
+    const Tesseract=await loadOCR();
+    const worker=await Tesseract.createWorker("rus+eng",1);
+    try{
+      const result=await worker.recognize(state.pdfPageCanvas);
+      const ratio=Math.min(window.devicePixelRatio||1,2);
+      const lines=(result.data.lines||[]).filter(line=>(line.text||"").trim()&&line.confidence>=35)
+        .map(line=>({text:line.text.trim(),x:line.bbox.x0/ratio,y:line.bbox.y0/ratio,
+          width:(line.bbox.x1-line.bbox.x0)/ratio,height:(line.bbox.y1-line.bbox.y0)/ratio}));
+      showPDFOCRLines(lines);
+      toast(lines.length?("Распознано строк: "+lines.length+". Выберите строку для исправления."):"На странице не удалось распознать строки.");
+    }finally{await worker.terminate();}
+  }catch(error){console.error("PDF OCR editor:",error);toast("Ошибка OCR: "+(error.message||"не удалось распознать страницу"));}
+  finally{if(button){button.disabled=false;button.textContent="Распознать строки для исправления";}}
+}
+function showPDFOCRLines(lines){
+  let panel=$("pdfOCRLinePanel");
+  if(!panel){panel=document.createElement("div");panel.id="pdfOCRLinePanel";panel.className="pdf-ocr-line-panel";$("readerMeta").append(panel);}
+  panel.replaceChildren();
+  const heading=document.createElement("strong");heading.textContent="Выберите распознанную строку:";
+  const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Скрыть список";
+  close.onclick=()=>panel.classList.add("hidden");
+  panel.append(heading,close);
+  lines.forEach((line,index)=>{
+    const item=document.createElement("button");item.type="button";item.className="secondary pdf-ocr-line";
+    item.textContent=(index+1)+". "+line.text;
+    item.onclick=()=>replacePDFOCRLine(line);
+    panel.append(item);
+  });
+  panel.classList.toggle("hidden",!lines.length);
+}
+async function replacePDFOCRLine(line){
+  const replacement=prompt("Исправьте распознанную строку:",line.text);
+  if(replacement===null||!replacement.trim())return;
+  snapshotPDFAnnotation();
+  const ctx=state.pdfOverlay.getContext("2d");
+  const size=Math.max(8,Math.min(42,line.height*.82));
+  ctx.save();ctx.fillStyle="#ffffff";
+  ctx.fillRect(Math.max(0,line.x-2),Math.max(0,line.y-1),line.width+5,line.height+3);
+  ctx.fillStyle="#202020";ctx.font=size+"px Arial";ctx.textBaseline="middle";
+  ctx.fillText(replacement.trim(),Math.max(0,line.x),line.y+line.height/2,Math.max(line.width*1.8,120));
+  ctx.restore();await persistPDFAnnotations();
+  toast("Строка заменена в визуальной редакции страницы.");
 }
 async function insertPDFImage(file){
   if(!file||!file.type.startsWith("image/")||!state.pdfOverlay)return;
