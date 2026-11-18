@@ -72,7 +72,7 @@ async function recognizePDF(file,worker){
       ocrCanvas.width=ocrCanvas.height=0;
     }
 
-    const pageBlock=document.createElement("section");
+    const pageBlock=document.createElement("div");
     pageBlock.className="studio-source-page";
     const heading=document.createElement("h2");heading.textContent="Страница "+n;
     const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
@@ -112,6 +112,10 @@ function sanitizeImportedHTML(markup){
     const attrs=[...node.attributes];attrs.forEach(a=>node.removeAttribute(a.name));
     const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
     if(style)node.setAttribute("style",style);
+    const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
+    const safeClasses=new Set(["studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
+    const keptClasses=classValue.split(/\\s+/).filter(name=>safeClasses.has(name));
+    if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
       const src=attrs.find(a=>a.name.toLowerCase()==="src")?.value||"";
       if(!/^data:image\/(png|jpeg|gif);base64,[a-z0-9+/=]+$/i.test(src)){node.remove();return;}
@@ -301,7 +305,7 @@ function cleanEditorHTML(){
 }
 function documentHTML(){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{body{margin:15mm auto}.studio-page-break{border:0;margin:0}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{body{margin:15mm auto}.studio-page-break{border:0;margin:0}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
 }
 function download(blob,name){
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
