@@ -301,3 +301,61 @@ body.dark{
 #ttsPlayBtn{background:var(--accent);color:#fff;border-color:var(--accent)}
 #ttsPauseBtn:disabled,#ttsStopBtn:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:600px){.reader-controls{flex-wrap:wrap;justify-content:center}.tts-setting{font-size:10px}.tts-setting select{max-width:135px}}
+
+
+/* Document Studio: a fixed, scrollable preview window instead of an endlessly growing page */
+.studio-editor{
+  height:min(70vh,780px);
+  min-height:420px;
+  max-height:780px;
+  overflow:auto;
+  overscroll-behavior:contain;
+  box-sizing:border-box;
+  white-space:normal;
+}
+.studio-editor .studio-source-page{
+  display:block;
+  margin:0 auto 28px;
+  padding:18px;
+  max-width:900px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:10px;
+  overflow:hidden;
+}
+.studio-editor .studio-source-page h2{
+  margin:0 0 10px;
+  font:600 17px Georgia,serif;
+}
+.studio-editor .studio-source-caption{
+  margin:10px 0 6px;
+  font-size:12px;
+  color:var(--muted);
+}
+.studio-editor .studio-source-page-image{
+  display:block;
+  width:auto;
+  max-width:100%;
+  height:auto;
+  margin:0 auto 14px;
+  border:1px solid var(--line);
+  background:#fff;
+}
+.studio-editor .studio-recognized-text{
+  min-height:36px;
+  padding:12px;
+  border:1px dashed var(--line);
+  border-radius:7px;
+  background:var(--bg);
+  color:var(--ink);
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  line-height:1.6;
+}
+.studio-editor .studio-recognized-text:focus{
+  outline:2px solid var(--accent);
+}
+@media(max-width:600px){
+  .studio-editor{height:68vh;min-height:360px;max-height:680px;padding:10px}
+  .studio-editor .studio-source-page{padding:10px;margin-bottom:18px}
+}
