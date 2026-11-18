@@ -54,3 +54,5 @@ body.dark{color-scheme:dark}
 .reader-content pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .reader-meta button{margin:6px}
 @media(max-width:600px){.reader-toolbar{padding:10px;gap:6px}.reader-controls{flex-wrap:wrap}.reader-controls .icon-btn{padding:8px}.reader-content{margin:12px auto}.reader-footer{gap:8px;position:sticky;bottom:0;background:var(--panel)}}
+
+.reader-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center}@media(max-width:700px){.reader-controls{gap:4px}.reader-controls .icon-btn{padding:8px 9px;font-size:11px}.reader-toolbar{flex-wrap:wrap}}
