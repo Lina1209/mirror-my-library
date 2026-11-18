@@ -125,7 +125,7 @@ function restoreDocxTableGeometry(xmlText){
     const tblW=xmlKid(tblPr,"tblW");
     if(tblW){
       const width=xmlNumber(tblW,"w"),type=xmlAttr(tblW,"type");
-      if(type==="pct"&&width>0){table.style.width=Math.min(100,width/50)+"%";table.dataset.docxWidthType="pct";table.dataset.docxWidth=String(width);}
+      if(type==="pct"&&width>0){table.style.width=Math.min(100,width/50)+"%";table.dataset.docxWidthType="pct";table.dataset.docxWidth=String(width/50);}
       else if(type==="dxa"&&width>0){table.style.width=twipsToPx(width)+"px";table.dataset.docxWidthType="dxa";table.dataset.docxWidth=String(width);}
     }
     const tableBorders=xmlKid(tblPr,"tblBorders");
