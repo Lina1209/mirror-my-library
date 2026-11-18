@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://lina1209.github.io/mirror-my-library/sitemap.xml
