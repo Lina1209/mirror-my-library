@@ -424,8 +424,8 @@ async function exportDOCX(){
           if(cell.colSpan>1)cellOptions.columnSpan=cell.colSpan;
           if(cell.rowSpan>1)cellOptions.rowSpan=cell.rowSpan;
           if(bg)cellOptions.shading={fill:bg,type:ShadingType.CLEAR};
-          const cellWidth=parseFloat(cell.style.width||"");
-          if(cellWidth>0)cellOptions.width={size:Math.round(cellWidth*15),type:WidthType.DXA};
+          const cellWidthValue=cell.style.width||"",cellWidth=parseFloat(cellWidthValue);
+          if(cellWidth>0)cellOptions.width=cellWidthValue.includes("%")?{size:Math.min(100,cellWidth),type:WidthType.PERCENTAGE}:{size:Math.round(cellWidth*15),type:WidthType.DXA};
           return new TableCell(cellOptions);
         })};
         if(rowHeight>0)rowOptions.height={value:Math.round(rowHeight*15),rule:row.dataset.docxHeightRule==="exact"?HeightRule.EXACT:HeightRule.ATLEAST};
