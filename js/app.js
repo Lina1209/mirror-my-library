@@ -389,7 +389,7 @@ async function openSpreadsheet(book){
 async function loadOCR(){await loadGlobalScript(()=>!!window.Tesseract,"https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js","OCR");return window.Tesseract;}
 async function extractPDFText(){
  if(!state.pdf)return;
- try{const T=await loadOCR(),pages=[];for(let n=1;n<=state.pdf.numPages;n++){setReaderStatus("Обработка PDF "+n+" / "+state.pdf.numPages);const page=await state.pdf.getPage(n),tc=await page.getTextContent();let value=tc.items.map(x=>x.str).join(" ").trim();if(value.length<20){const vp=page.getViewport({scale:1.5}),c=document.createElement("canvas"),ctx=c.getContext("2d");c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);await page.render({canvasContext:ctx,viewport:vp}).promise;const result=await T.recognize(c,"rus+eng");value=result.data.text||"[Текст не распознан]";}pages.push("Страница "+n+"\n"+value);}const text=pages.join("\n\n");state.currentTextPages=splitText(text);state.textPage=0;renderTextPage();setReaderStatus("Текст PDF извлечён");const blob=new Blob([text],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pdf-text.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){console.error(e);toast("Ошибка OCR: "+e.message);}
+ try{const T=await loadOCR(),pages=[];for(let n=1;n<=state.pdf.numPages;n++){setReaderStatus("Обработка PDF "+n+" / "+state.pdf.numPages);const page=await state.pdf.getPage(n),tc=await page.getTextContent();let value=tc.items.map(x=>x.str).join(" ").trim();if(value.length<20){const vp=page.getViewport({scale:1.5}),c=document.createElement("canvas"),ctx=c.getContext("2d");c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);await page.render({canvasContext:ctx,viewport:vp}).promise;const result=await T.recognize(c,"rus+eng");value=result.data.text||"[Текст не распознан]";}pages.push("Страница "+n+"\n"+value);}const text=pages.join("\n\n");state.currentTextPages=splitText(text);state.textPage=0;state.pdf=null;renderTextPage();setReaderStatus("Текст PDF извлечён");const blob=new Blob([text],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pdf-text.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){console.error(e);toast("Ошибка OCR: "+e.message);}
 }
 
 async function openBook(bookId) {
@@ -494,7 +494,7 @@ $("fileInput").onchange = event => {
 };
 $("searchInput").oninput = renderBooks;
 
-document.querySelectorAll(".nav-item").forEach(button => {
+document.querySelectorAll(".nav-item[data-filter]").forEach(button => {
   button.onclick = () => {
     document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
     button.classList.add("active");
