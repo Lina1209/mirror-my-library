@@ -66,7 +66,13 @@
       <button id="studioPageBreak" class="secondary">↧ Разрыв страницы</button><button id="studioInsertTable" class="secondary">＋ Таблица 3×3</button><button id="studioAddRow" class="secondary">＋ Строка</button><button id="studioAddColumn" class="secondary">＋ Столбец</button><button id="studioDeleteRow" class="secondary">− Строка</button><button id="studioDeleteColumn" class="secondary">− Столбец</button>
       <button id="studioClear" class="secondary">Очистить</button>
     </div></div>
-    <div id="studioEditor" class="studio-editor" contenteditable="true" spellcheck="true" aria-label="Редактор распознанного документа"><p>Здесь появится распознанный текст. Его можно исправить и отформатировать.</p></div>
+    <div class="studio-page-navigation" aria-label="Перелистывание страниц">
+  <button id="studioPrevPage" class="secondary" type="button" aria-label="Предыдущая страница" title="Предыдущая страница">◀</button>
+  <span id="studioPageCounter" aria-live="polite">Страница —</span>
+  <button id="studioNextPage" class="secondary" type="button" aria-label="Следующая страница" title="Следующая страница">▶</button>
+  <span class="studio-page-hint">Листайте пальцем или стрелками</span>
+</div>
+<div id="studioEditor" class="studio-editor" contenteditable="true" spellcheck="true" aria-label="Редактор распознанного документа"><p>Здесь появится распознанный текст. Его можно исправить и отформатировать.</p></div>
     <div class="studio-exports"><button id="studioSave" class="primary">Сохранить новую редакцию в библиотеку</button><button id="studioPDF" class="secondary">Создать PDF / Печать</button><button id="studioTXT" class="secondary">Скачать TXT</button><button id="studioDownloadHTML" class="secondary">Скачать HTML</button><button id="studioDOCX" class="secondary">Экспорт DOCX</button><button id="studioXLSX" class="secondary">Экспорт XLSX</button></div><div class="studio-revisions"><label for="studioSavedRevision">Сохранённые редакции</label><select id="studioSavedRevision"><option value="">Выберите сохранённую редакцию…</option></select><button id="studioLoadRevision" class="secondary" type="button">Открыть редакцию для продолжения</button></div></div>
   <p class="studio-caution">Оригинал не изменяется. DOCX экспортирует поддерживаемые абзацы, заголовки, списки, выделения и таблицы. XLSX экспортирует редактируемую таблицу. Для XLSX/CSV обрабатывается первый лист/таблица. OCR не гарантирует точное восстановление исходной вёрстки; для PDF выберите «Создать PDF / Печать», затем «Сохранить как PDF».</p>
 </section>
