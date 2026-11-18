@@ -386,10 +386,105 @@ async function openSpreadsheet(book){
  wb.SheetNames.forEach(name=>{const h=document.createElement("h3");h.textContent=name;root.append(h);const table=document.createElement("div");table.className="sheet-table";table.innerHTML=window.XLSX.utils.sheet_to_html(wb.Sheets[name]);root.append(table);});
  $("readerContent").replaceChildren(root);$("prevBtn").disabled=$("nextBtn").disabled=true;setReaderStatus("Таблица · "+wb.SheetNames.length+" лист(ов)");
 }
-async function loadOCR(){await loadGlobalScript(()=>!!window.Tesseract,"https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js","OCR");return window.Tesseract;}
-async function extractPDFText(){
- if(!state.pdf)return;
- try{let T=null;const pages=[];for(let n=1;n<=state.pdf.numPages;n++){setReaderStatus("Обработка PDF "+n+" / "+state.pdf.numPages);const page=await state.pdf.getPage(n),tc=await page.getTextContent();let value=tc.items.map(x=>x.str).join(" ").trim();if(value.length<20){if(!T)T=await loadOCR();const vp=page.getViewport({scale:1.5}),c=document.createElement("canvas"),ctx=c.getContext("2d");c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);await page.render({canvasContext:ctx,viewport:vp}).promise;const result=await T.recognize(c,"rus+eng");value=result.data.text||"[Текст не распознан]";}pages.push("Страница "+n+"\n"+value);}const text=pages.join("\n\n");state.currentTextPages=splitText(text);state.textPage=0;state.pdf=null;renderTextPage();setReaderStatus("Текст PDF извлечён");const blob=new Blob([text],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pdf-text.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){console.error(e);toast("Ошибка OCR: "+e.message);}
+async function loadOCR() {
+  await loadGlobalScript(
+    () => !!window.Tesseract?.createWorker,
+    "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js",
+    "OCR"
+  );
+  return window.Tesseract;
+}
+
+async function extractPDFText() {
+  if (!state.pdf) return;
+
+  const pdf = state.pdf;
+  const pages = [];
+  let worker = null;
+  const button = $("pdfTextBtn");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Распознавание…";
+  }
+
+  try {
+    let Tesseract = null;
+    for (let n = 1; n <= pdf.numPages; n++) {
+      setReaderStatus(`Извлечение текста: ${n} / ${pdf.numPages}`);
+      const page = await pdf.getPage(n);
+      const textContent = await page.getTextContent();
+      let value = textContent.items
+        .map(item => typeof item.str === "string" ? item.str : "")
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\\s+/g, " ")
+        .trim();
+
+      // Если в PDF нет полноценного текстового слоя — распознаём изображение страницы.
+      if (value.length < 20) {
+        if (!Tesseract) Tesseract = await loadOCR();
+        if (!worker) {
+          worker = await Tesseract.createWorker("rus+eng", 1, {
+            logger: message => {
+              if (message.status === "recognizing text") {
+                const progress = Math.round((message.progress || 0) * 100);
+                setReaderStatus(`OCR страницы ${n}: ${progress}%`);
+              }
+            }
+          });
+        }
+
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, 3200 / Math.max(baseViewport.width, baseViewport.height));
+        const viewport = page.getViewport({ scale: Math.max(1, scale) });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("Не удалось создать область распознавания.");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+
+        await page.render({ canvasContext: context, viewport }).promise;
+        const result = await worker.recognize(canvas);
+        value = (result.data.text || "").trim() || "[Текст на этой странице не распознан]";
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      pages.push(`Страница ${n}\\n${value}`);
+    }
+
+    const extractedText = pages.join("\\n\\n");
+    if (!extractedText.trim()) throw new Error("В документе не удалось найти текст.");
+
+    state.currentTextPages = splitText(extractedText);
+    state.textPage = 0;
+    state.pdf = null;
+    renderTextPage();
+    setReaderStatus("Текст PDF извлечён");
+
+    const blob = new Blob([extractedText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = (state.activeBook?.name || "document.pdf").replace(/\\.pdf$/i, "") + "-текст.txt";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    toast("Готово: текст извлечён и сохранён в TXT");
+  } catch (error) {
+    console.error("PDF OCR error:", error);
+    setReaderStatus("Не удалось распознать PDF");
+    toast("Ошибка OCR: " + (error?.message || "неизвестная ошибка"));
+  } finally {
+    if (worker) {
+      try { await worker.terminate(); } catch (error) { console.warn("OCR worker cleanup:", error); }
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Извлечь текст / OCR";
+    }
+  }
 }
 
 async function openBook(bookId) {
