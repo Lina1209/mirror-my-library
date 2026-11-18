@@ -1,4 +1,4 @@
-import { put, getAll } from "./db.js";
+import { put } from "./db.js";
 
 const $ = id => document.getElementById(id);
 const state = { sourceName:"", sourceType:"", busy:false };
@@ -79,16 +79,25 @@ async function recognize(){
   }catch(error){console.error(error);say("Ошибка: "+error.message);}
   finally{if(worker)try{await worker.terminate();}catch{}setBusy(false);}
 }
+function cleanEditorHTML(){
+  const copy=editor.cloneNode(true);
+  copy.querySelectorAll("script,iframe,object,embed,form,button,input,textarea,select").forEach(node=>node.remove());
+  copy.querySelectorAll("*").forEach(node=>{
+    [...node.attributes].forEach(attr=>{
+      if(/^on/i.test(attr.name)||((attr.name==="href"||attr.name==="src")&&/^\\s*javascript:/i.test(attr.value))) node.removeAttribute(attr.name);
+    });
+  });
+  return copy.innerHTML;
+}
 function documentHTML(){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}img{max-width:100%}@media print{body{margin:15mm auto}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+editor.innerHTML+'</body></html>';
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}img{max-width:100%}@media print{body{margin:15mm auto}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
 }
 function download(blob,name){
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 async function saveToLibrary(){
   const html=documentHTML(),name=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.html";
-  const books=await getAll("books");
   await put("books",{id:crypto.randomUUID?.()||String(Date.now()),name,title:state.sourceName.replace(/\.[^.]+$/,"")+" — редакция",author:"",ext:"html",type:"text/html",data:new TextEncoder().encode(html).buffer,addedAt:Date.now(),favorite:false,sourceName:state.sourceName,revisionOf:state.sourceName});
   say("Новая HTML-редакция добавлена в библиотеку. Исходный файл не изменён.");
   download(new Blob([html],{type:"text/html;charset=utf-8"}),name);
