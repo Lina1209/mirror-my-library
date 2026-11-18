@@ -158,7 +158,7 @@ function makePanel() {
     toggle.setAttribute("aria-expanded", String(!panel.classList.contains("hidden")));
     if (!panel.classList.contains("hidden")) await populateLanguages();
   });
-  $("translationApply").addEventListener("click", applyTranslation);
+  $("translationEndpoint").addEventListener("change", async () => {\n    endpoint = cleanEndpoint($("translationEndpoint").value);\n    $("translationLanguage").dataset.loaded = "";\n    await populateLanguages();\n  });\n  $("translationApply").addEventListener("click", applyTranslation);
   $("translationReset").addEventListener("click", () => {
     restoreOriginals();
     activeLanguage = "ru";
