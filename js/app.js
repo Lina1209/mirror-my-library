@@ -396,7 +396,7 @@ function ensurePDFEditorControls() {
   const toolbar = document.createElement("div");
   toolbar.id = "pdfEditorToolbar";
   toolbar.className = "pdf-editor-toolbar";
-  const tools = [["view","Просмотр"],["text","Текст"],["pen","Перо"],["highlight","Маркер"],["eraser","Ластик"]];
+  const tools = [["view","Просмотр"],["text","Текст"],["pen","Перо"],["highlight","Маркер"],["eraser","Ластик"],["cover","Скрыть область"]];
   tools.forEach(([tool,label]) => {
     const button=document.createElement("button");
     button.type="button"; button.className="secondary pdf-tool";
@@ -410,9 +410,25 @@ function ensurePDFEditorControls() {
   save.type="button";save.className="primary";save.textContent="Сохранить PDF";save.onclick=exportEditedPDF;
   const note=document.createElement("small");
   note.className="pdf-editor-note";
-  note.textContent="Исходная вёрстка сохраняется. Добавляйте заметки, текст и выделения.";
-  toolbar.append(undo,save,note);
-  $("readerMeta").append(toolbar);
+  const imageButton=document.createElement("button");
+  imageButton.type="button";imageButton.className="secondary";imageButton.textContent="＋ Изображение";
+  imageButton.onclick=()=>{const input=$("pdfImageInput");input.value="";input.click();};
+  const imageInput=document.createElement("input");
+  imageInput.id="pdfImageInput";imageInput.type="file";imageInput.accept="image/png,image/jpeg,image/webp";
+  imageInput.hidden=true;
+  imageInput.onchange=()=>insertPDFImage(imageInput.files?.[0]);
+  const sizeLabel=document.createElement("label");
+  sizeLabel.className="pdf-editor-setting";sizeLabel.textContent="Размер текста";
+  const sizeInput=document.createElement("input");sizeInput.id="pdfTextSize";sizeInput.type="number";
+  sizeInput.min="8";sizeInput.max="72";sizeInput.value="18";sizeInput.inputMode="numeric";
+  sizeLabel.append(sizeInput);
+  const colorLabel=document.createElement("label");
+  colorLabel.className="pdf-editor-setting";colorLabel.textContent="Цвет";
+  const colorInput=document.createElement("input");colorInput.id="pdfTextColor";colorInput.type="color";colorInput.value="#202020";
+  colorLabel.append(colorInput);
+  note.textContent="Добавляйте текст, рисунки и изображения; «Скрыть область» закрывает фрагмент белой плашкой. Оригинал не меняется.";
+  toolbar.append(imageButton,sizeLabel,colorLabel,undo,save,note);
+  $("readerMeta").append(toolbar,imageInput);
   const ocr=document.createElement("button");
   ocr.id="pdfTextBtn";ocr.className="secondary";ocr.textContent="Извлечь текст / OCR";
   ocr.onclick=extractPDFText;$("readerMeta").append(ocr);
@@ -452,11 +468,11 @@ async function persistPDFAnnotations(){
   await put("books",state.activeBook);
 }
 function attachPDFAnnotationEvents(canvas){
-  let drawing=false,last=null;
+  let drawing=false,last=null,startPoint=null;
   const point=event=>{
-    const rect=canvas.getBoundingClientRect();
-    return {x:(event.clientX-rect.left)*canvas.width/rect.width/Math.min(window.devicePixelRatio||1,2),
-      y:(event.clientY-rect.top)*canvas.height/rect.height/Math.min(window.devicePixelRatio||1,2)};
+    const rect=canvas.getBoundingClientRect(),ratio=Math.min(window.devicePixelRatio||1,2);
+    return {x:(event.clientX-rect.left)*canvas.width/rect.width/ratio,
+      y:(event.clientY-rect.top)*canvas.height/rect.height/ratio};
   };
   canvas.onpointerdown=event=>{
     if(state.pdfEditTool==="view")return;
@@ -464,29 +480,52 @@ function attachPDFAnnotationEvents(canvas){
     if(state.pdfEditTool==="text"){
       const value=prompt("Введите текст для добавления в PDF:");
       if(value&&value.trim()){
-        const ctx=canvas.getContext("2d");const p=point(event);
-        ctx.save();ctx.font="18px Arial";ctx.fillStyle="#202020";ctx.textBaseline="top";
-        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*22));
+        const ctx=canvas.getContext("2d"),p=point(event);
+        const size=Math.max(8,Math.min(72,Number($("pdfTextSize")?.value)||18));
+        const color=$("pdfTextColor")?.value||"#202020";
+        ctx.save();ctx.font=size+"px Arial";ctx.fillStyle=color;ctx.textBaseline="top";
+        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*(size*1.25)));
         ctx.restore();persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
       }
       return;
     }
-    drawing=true;last=point(event);
+    drawing=true;last=point(event);startPoint=last;
   };
   canvas.onpointermove=event=>{
     if(!drawing||!last)return;event.preventDefault();
     const next=point(event),ctx=canvas.getContext("2d");
     ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
-    if(state.pdfEditTool==="eraser"){ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;}
-    else if(state.pdfEditTool==="highlight"){ctx.strokeStyle="rgba(255,224,55,.38)";ctx.lineWidth=20;}
-    else{ctx.strokeStyle="#d13d3d";ctx.lineWidth=2.5;}
-    ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();ctx.restore();last=next;
+    if(state.pdfEditTool==="cover"){
+      ctx.fillStyle="#ffffff";ctx.fillRect(startPoint.x,startPoint.y,next.x-startPoint.x,next.y-startPoint.y);
+    }else if(state.pdfEditTool==="eraser"){
+      ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+    }else if(state.pdfEditTool==="highlight"){
+      ctx.strokeStyle="rgba(255,224,55,.38)";ctx.lineWidth=20;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+    }else{
+      ctx.strokeStyle="#d13d3d";ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+    }
+    ctx.restore();last=next;
   };
   const finish=()=>{
-    if(!drawing)return;drawing=false;last=null;
+    if(!drawing)return;drawing=false;last=null;startPoint=null;
     persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
   };
   canvas.onpointerup=finish;canvas.onpointercancel=finish;canvas.onlostpointercapture=finish;
+}
+async function insertPDFImage(file){
+  if(!file||!file.type.startsWith("image/")||!state.pdfOverlay)return;
+  snapshotPDFAnnotation();
+  try{
+    const url=URL.createObjectURL(file),image=new Image();
+    await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(new Error("Не удалось открыть изображение"));image.src=url;});
+    const canvas=state.pdfOverlay,ctx=canvas.getContext("2d");
+    const ratio=Math.min(window.devicePixelRatio||1,2),width=canvas.width/ratio,height=canvas.height/ratio;
+    const maxWidth=width*.48,maxHeight=height*.48,scale=Math.min(maxWidth/image.naturalWidth,maxHeight/image.naturalHeight,1);
+    const drawWidth=image.naturalWidth*scale,drawHeight=image.naturalHeight*scale;
+    ctx.drawImage(image,(width-drawWidth)/2,(height-drawHeight)/2,drawWidth,drawHeight);
+    URL.revokeObjectURL(url);
+    await persistPDFAnnotations();toast("Изображение добавлено по центру страницы. Его можно переместить только через отмену и повторную вставку.");
+  }catch(error){toast("Не удалось вставить изображение: "+error.message);}
 }
 async function undoPDFAnnotation(){
   const history=state.pdfUndo[state.pdfPage]||[];
