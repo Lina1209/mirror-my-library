@@ -134,9 +134,10 @@ function restoreDocxTableGeometry(xmlText){
       const row=htmlRows[rowIndex];if(!row)return;
       const trPr=xmlKid(xmlRow,"trPr"),height=xmlKid(trPr,"trHeight");
       if(height&&xmlNumber(height,"val")>0){
-        const px=twipsToPx(xmlNumber(height,"val")),rule=xmlAttr(height,"hRule");
-        row.style.height=px+"px";
-        row.dataset.docxHeightRule=rule||"atLeast";
+        const rawHeight=xmlNumber(height,"val"),rule=xmlAttr(height,"hRule")||"atLeast";
+        if(rule!=="auto")row.style.height=twipsToPx(rawHeight)+"px";
+        row.dataset.docxHeight=String(rawHeight);
+        row.dataset.docxHeightRule=rule;
       }
       if(xmlKid(trPr,"tblHeader"))row.dataset.docxHeader="true";
       if(xmlKid(trPr,"cantSplit"))row.dataset.docxCantSplit="true";
@@ -176,7 +177,6 @@ function restoreDocxTableGeometry(xmlText){
             if(start){start.rowSpan=(start.rowSpan||1)+1;cell.remove();}
             else activeVertical.set(gridIndex,cell);
           }else{
-            cell.rowSpan=1;
             for(let col=0;col<span;col++)activeVertical.set(gridIndex+col,cell);
           }
         }else{
@@ -320,6 +320,10 @@ function insertStudioPageBreak(){
 function modifyStudioTable(action){
   const cell=currentTableCell();if(!cell){say("Поставьте курсор внутрь ячейки таблицы.");return;}
   const row=cell.parentElement,table=cell.closest("table"),index=cell.cellIndex;
+  if(table.querySelector('td[rowspan]:not([rowspan="1"]),th[rowspan]:not([rowspan="1"]),td[colspan]:not([colspan="1"]),th[colspan]:not([colspan="1"])')){
+    say("В этой таблице есть объединённые ячейки. Чтобы не нарушить их структуру, добавление и удаление строк/столбцов пока отключено. Текст и оформление ячеек редактировать можно.");
+    return;
+  }
   if(action==="addRow"){
     const newRow=table.insertRow(row.rowIndex+1);
     [...row.cells].forEach(()=>newRow.insertCell());
@@ -413,7 +417,7 @@ async function exportDOCX(){
       const colgroup=node.querySelector(":scope > colgroup");
       const gridWidths=colgroup?[...colgroup.children].map(col=>Math.round((parseFloat(col.style.width)||0)*15)): [];
       const rows=[...node.rows].map(row=>{
-        const rowHeight=parseFloat(row.style.height||row.style.minHeight||"");
+        const rowHeight=parseFloat(row.style.height||row.style.minHeight||""),storedRowHeight=Number(row.dataset.docxHeight)||0;
         const rowOptions={children:[...row.cells].map(cell=>{
           const bg=cssColor(cell.style.backgroundColor);
           const cellOptions={
@@ -428,7 +432,7 @@ async function exportDOCX(){
           if(cellWidth>0)cellOptions.width=cellWidthValue.includes("%")?{size:Math.min(100,cellWidth),type:WidthType.PERCENTAGE}:{size:Math.round(cellWidth*15),type:WidthType.DXA};
           return new TableCell(cellOptions);
         })};
-        if(rowHeight>0)rowOptions.height={value:Math.round(rowHeight*15),rule:row.dataset.docxHeightRule==="exact"?HeightRule.EXACT:HeightRule.ATLEAST};
+        if(storedRowHeight>0||rowHeight>0){const rule=row.dataset.docxHeightRule;rowOptions.height={value:storedRowHeight||Math.round(rowHeight*15),rule:rule==="exact"?HeightRule.EXACT:rule==="auto"?HeightRule.AUTO:HeightRule.ATLEAST};}
         if(row.dataset.docxCantSplit==="true")rowOptions.cantSplit=true;
         if(row.dataset.docxHeader==="true")rowOptions.tableHeader=true;
         return new TableRow(rowOptions);
