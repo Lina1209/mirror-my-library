@@ -1,4 +1,4 @@
-import { put } from "./db.js";
+import { put, getAll } from "./db.js";
 
 const $ = id => document.getElementById(id);
 const state = { sourceName:"", sourceType:"", busy:false, format:"text" };
@@ -85,6 +85,15 @@ function sanitizeImportedHTML(markup){
     if(["TD","TH"].includes(node.tagName)){
       ["rowspan","colspan"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isInteger(n)&&n>=1&&n<=100)node.setAttribute(key,String(n));});
     }
+    const safeDataAttributes=new Set(["data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
+    attrs.forEach(attr=>{
+      const key=attr.name.toLowerCase(),value=String(attr.value||"").trim();
+      if(!safeDataAttributes.has(key))return;
+      if(["data-docx-table","data-docx-header","data-docx-cant-split","data-page-break"].includes(key)){if(value==="true")node.setAttribute(key,"true");}
+      else if(key==="data-docx-width-type"&&["pct","dxa"].includes(value))node.setAttribute(key,value);
+      else if(key==="data-docx-height-rule"&&["exact","atLeast","auto"].includes(value))node.setAttribute(key,value);
+      else if(["data-docx-width","data-docx-height"].includes(key)&&/^\d+(?:\.\d+)?$/.test(value))node.setAttribute(key,value);
+    });
   });
   return doc.body.innerHTML;
 }
@@ -260,10 +269,34 @@ function documentHTML(){
 function download(blob,name){
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
 }
+async function refreshSavedRevisions(selectedId=""){
+  const select=$("studioSavedRevision");if(!select)return;
+  const books=await getAll("books");
+  const revisions=books.filter(book=>book.revisionOf||book.revisionSchema===2).sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
+  select.replaceChildren(new Option("Выберите сохранённую редакцию…",""));
+  revisions.forEach(book=>select.add(new Option(book.title||book.name||"Редакция",book.id)));
+  if(selectedId&&revisions.some(book=>book.id===selectedId))select.value=selectedId;
+}
+async function loadSavedRevision(){
+  const id=$("studioSavedRevision")?.value;if(!id){say("Выберите сохранённую редакцию.");return;}
+  const books=await getAll("books"),book=books.find(item=>item.id===id);
+  if(!book?.data){say("Не удалось найти содержимое редакции в локальной библиотеке.");return;}
+  try{
+    const htmlText=typeof book.data==="string"?book.data:new TextDecoder().decode(book.data instanceof ArrayBuffer?book.data:new Uint8Array(book.data));
+    const parsed=new DOMParser().parseFromString(htmlText,"text/html");
+    editor.innerHTML=sanitizeImportedHTML(parsed.body?.innerHTML||htmlText);
+    state.sourceName=book.sourceName||book.revisionOf||book.name||"document.html";
+    state.sourceType=book.type||"text/html";state.format=book.format||"docx";
+    setProgress(100);
+    say("Сохранённая редакция открыта. Таблицы и поддерживаемые параметры оформления восстановлены. Можно продолжить редактирование или экспортировать DOCX.");
+  }catch(error){console.error(error);say("Не удалось открыть редакцию: "+error.message);}
+}
 async function saveToLibrary(){
   const html=documentHTML(),base=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document"),name=base+"-редакция.html";
-  await put("books",{id:crypto.randomUUID?.()||String(Date.now()),name,title:(state.sourceName.replace(/\.[^.]+$/,"")||"Документ")+" — редакция",author:"",ext:"html",type:"text/html",data:new TextEncoder().encode(html).buffer,addedAt:Date.now(),favorite:false,sourceName:state.sourceName,revisionOf:state.sourceName});
-  say("Новая HTML-редакция добавлена в библиотеку. Исходный файл не изменён.");
+  const id=crypto.randomUUID?.()||String(Date.now());
+  await put("books",{id,name,title:(state.sourceName.replace(/\.[^.]+$/,"")||"Документ")+" — редакция",author:"",ext:"html",type:"text/html",data:new TextEncoder().encode(html).buffer,addedAt:Date.now(),favorite:false,sourceName:state.sourceName,revisionOf:state.sourceName,format:state.format,revisionSchema:2});
+  await refreshSavedRevisions(id);
+  say("Новая HTML-редакция добавлена в библиотеку и доступна для повторного открытия. Исходный файл не изменён.");
   download(new Blob([html],{type:"text/html;charset=utf-8"}),name);
 }
 function printPDF(){
@@ -475,6 +508,7 @@ async function exportXLSX(){
 }
 $("studioRecognize").addEventListener("click",recognize);
 $("studioSave").addEventListener("click",()=>saveToLibrary().catch(e=>say("Не удалось сохранить: "+e.message)));
+$("studioLoadRevision").addEventListener("click",()=>loadSavedRevision());
 $("studioPDF").addEventListener("click",printPDF);
 $("studioTXT").addEventListener("click",exportText);
 $("studioDOCX").addEventListener("click",()=>exportDOCX().catch(e=>{console.error(e);say("Не удалось создать DOCX: "+e.message);}));
@@ -504,6 +538,6 @@ $("studioUndo").addEventListener("click",()=>insertCommand("undo"));
 $("studioRedo").addEventListener("click",()=>insertCommand("redo"));
 $("studioClear").addEventListener("click",()=>{if(confirm("Очистить рабочее поле?"))editor.replaceChildren();});
 $("studioDownloadHTML").addEventListener("click",()=>download(new Blob([documentHTML()],{type:"text/html;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+".html"));
-$("openStudioBtn").addEventListener("click",()=>{$("libraryView").classList.add("hidden");$("readerView").classList.add("hidden");$("documentStudioView").classList.remove("hidden");document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));$("openStudioBtn").classList.add("active");});
+$("openStudioBtn").addEventListener("click",()=>{$("libraryView").classList.add("hidden");$("readerView").classList.add("hidden");$("documentStudioView").classList.remove("hidden");document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));$("openStudioBtn").classList.add("active");refreshSavedRevisions().catch(e=>say("Не удалось загрузить список редакций: "+e.message));});
 $("studioBack").addEventListener("click",()=>{$("documentStudioView").classList.add("hidden");$("libraryView").classList.remove("hidden");$("openStudioBtn").classList.remove("active");});
 fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0];if(f){state.sourceName=f.name;say("Выбран файл: "+f.name+". Нажмите «Открыть документ / распознать».");}});
