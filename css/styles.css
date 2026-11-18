@@ -359,3 +359,16 @@ body.dark{
   .studio-editor{height:68vh;min-height:360px;max-height:680px;padding:10px}
   .studio-editor .studio-source-page{padding:10px;margin-bottom:18px}
 }
+
+
+/* Page navigation controls for the Document Studio preview */
+.studio-page-navigation{
+  display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;
+  margin:12px 0 4px;padding:9px 12px;border:1px solid var(--line);
+  border-radius:10px;background:var(--panel);color:var(--ink);
+}
+.studio-page-navigation button{min-width:44px;min-height:40px;font-size:18px;touch-action:manipulation}
+.studio-page-navigation button:disabled{opacity:.35;cursor:not-allowed}
+#studioPageCounter{font:600 13px Georgia,serif;min-width:112px;text-align:center}
+.studio-page-hint{font-size:11px;color:var(--muted)}
+.studio-editor{touch-action:pan-y pinch-zoom}
