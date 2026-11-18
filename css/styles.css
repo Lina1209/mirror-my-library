@@ -106,3 +106,7 @@ body.dark{color-scheme:dark}
 .pdf-text-object{position:absolute;box-sizing:border-box;padding:1px;background:rgba(255,255,255,.92);border:1px dashed transparent;pointer-events:auto;touch-action:none;cursor:move;overflow:hidden;white-space:nowrap;line-height:1.15;user-select:none}
 .pdf-text-object:hover,.pdf-text-object:active{border-color:var(--accent)}
 .pdf-text-object .pdf-image-resize{z-index:2}
+
+.pdf-text-object.selected{border:2px solid var(--accent);box-shadow:0 0 0 2px rgba(40,110,220,.16)}
+.pdf-editor-setting select{max-width:150px;min-height:34px;border:1px solid var(--border,#ccc);border-radius:8px;padding:4px;background:var(--surface,#fff);color:inherit}
+.pdf-editor-setting input[type="checkbox"]{width:18px;height:18px;vertical-align:middle}

@@ -6,7 +6,7 @@ const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: 18, currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, pdfEditTool: "view", pdfUndo: {}
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -437,7 +437,23 @@ function ensurePDFEditorControls() {
   const colorInput=document.createElement("input");colorInput.id="pdfTextColor";colorInput.type="color";colorInput.value="#202020";
   colorLabel.append(colorInput);
   note.textContent="Добавляйте текст, рисунки и изображения; «Скрыть область» закрывает фрагмент белой плашкой. Оригинал не меняется.";
-  toolbar.append(imageButton,sizeLabel,colorLabel,ocrEdit,undo,save,note);
+  const fontLabel=document.createElement("label");
+  fontLabel.className="pdf-editor-setting";fontLabel.textContent="Шрифт";
+  const fontSelect=document.createElement("select");fontSelect.id="pdfObjectFont";
+  [["Arial,sans-serif","Arial"],["Georgia,serif","Georgia"],["'Times New Roman',serif","Times New Roman"],["Verdana,sans-serif","Verdana"],["'Courier New',monospace","Courier New"]].forEach(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;fontSelect.append(option);});
+  fontLabel.append(fontSelect);
+  const objectColorLabel=document.createElement("label");objectColorLabel.className="pdf-editor-setting";objectColorLabel.textContent="Цвет исправленного текста";
+  const objectColor=document.createElement("input");objectColor.type="color";objectColor.id="pdfObjectTextColor";objectColor.value="#202020";objectColorLabel.append(objectColor);
+  const boldLabel=document.createElement("label");boldLabel.className="pdf-editor-setting";
+  const bold=document.createElement("input");bold.type="checkbox";bold.id="pdfObjectBold";boldLabel.append(bold,document.createTextNode(" Жирный"));
+  const italicLabel=document.createElement("label");italicLabel.className="pdf-editor-setting";
+  const italic=document.createElement("input");italic.type="checkbox";italic.id="pdfObjectItalic";italicLabel.append(italic,document.createTextNode(" Курсив"));
+  const backgroundLabel=document.createElement("label");backgroundLabel.className="pdf-editor-setting";backgroundLabel.textContent="Фон текста";
+  const background=document.createElement("select");background.id="pdfObjectBackground";
+  [["white","Белый"],["transparent","Прозрачный"]].forEach(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;background.append(option);});
+  backgroundLabel.append(background);
+  [fontSelect,objectColor,bold,italic,background].forEach(control=>control.addEventListener("change",applyPDFTextObjectStyle));
+  toolbar.append(imageButton,sizeLabel,colorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,ocrEdit,undo,save,note);
   $("readerMeta").append(toolbar,imageInput);
   const ocr=document.createElement("button");
   ocr.id="pdfTextBtn";ocr.className="secondary";ocr.textContent="Извлечь текст / OCR";
@@ -571,7 +587,12 @@ async function replacePDFOCRLine(line){
   list.push({id:makeId(),text:replacement.trim(),x:line.x/pageWidth,y:line.y/pageHeight,
     w:Math.min(.95,Math.max(line.width/pageWidth*1.25,.12)),
     h:Math.min(.15,Math.max(line.height/pageHeight*1.8,.025)),
-    fontScale:Math.max(.008,Math.min(.04,line.height/pageHeight*.82)),color:"#202020"});
+    fontScale:Math.max(.008,Math.min(.04,line.height/pageHeight*.82)),
+    color:$("pdfObjectTextColor")?.value||"#202020",
+    fontFamily:$("pdfObjectFont")?.value||"Arial,sans-serif",
+    bold:!!$("pdfObjectBold")?.checked,italic:!!$("pdfObjectItalic")?.checked,
+    background:$("pdfObjectBackground")?.value!=="transparent",
+    backgroundColor:"#ffffff"});
   state.activeBook.pdfTextObjects=state.pdfTextObjects;
   await persistPDFAnnotations();await put("books",state.activeBook);renderPDFImageObjects();
   toast("Текст заменён. Его можно перемещать и менять размер за угловой маркер.");
@@ -593,6 +614,32 @@ async function insertPDFImage(file){
     toast("Изображение добавлено. Перетаскивайте его, а за угол — изменяйте размер.");
   }catch(error){toast("Не удалось вставить изображение: "+error.message);}
 }
+function selectPDFTextObject(id){
+  state.selectedPDFTextObjectId=id;
+  const object=(state.pdfTextObjects[state.pdfPage]||[]).find(item=>item.id===id);
+  if(!object)return;
+  if($("pdfObjectFont"))$("pdfObjectFont").value=object.fontFamily||"Arial,sans-serif";
+  if($("pdfObjectTextColor"))$("pdfObjectTextColor").value=object.color||"#202020";
+  if($("pdfObjectBold"))$("pdfObjectBold").checked=!!object.bold;
+  if($("pdfObjectItalic"))$("pdfObjectItalic").checked=!!object.italic;
+  if($("pdfObjectBackground"))$("pdfObjectBackground").value=object.background===false?"transparent":"white";
+  document.querySelectorAll(".pdf-text-object").forEach(frame=>frame.classList.toggle("selected",frame===document.querySelector(".pdf-text-object")&&false));
+  const layer=$("pdfObjectLayer");
+  layer?.querySelectorAll(".pdf-text-object").forEach((frame,index)=>frame.classList.toggle("selected",(state.pdfTextObjects[state.pdfPage]||[])[index]?.id===id));
+}
+async function applyPDFTextObjectStyle(){
+  const object=(state.pdfTextObjects[state.pdfPage]||[]).find(item=>item.id===state.selectedPDFTextObjectId);
+  if(!object){toast("Сначала выберите исправленную строку на странице.");return;}
+  object.fontFamily=$("pdfObjectFont").value;
+  object.color=$("pdfObjectTextColor").value;
+  object.bold=$("pdfObjectBold").checked;
+  object.italic=$("pdfObjectItalic").checked;
+  object.background=$("pdfObjectBackground").value!=="transparent";
+  state.activeBook.pdfTextObjects=state.pdfTextObjects;
+  renderPDFImageObjects();
+  try{await put("books",state.activeBook);selectPDFTextObject(object.id);toast("Оформление текста сохранено.");}
+  catch(error){toast("Не удалось сохранить оформление: "+error.message);}
+}
 function renderPDFImageObjects(){
   const layer=$("pdfObjectLayer");if(!layer)return;
   layer.replaceChildren();
@@ -600,10 +647,15 @@ function renderPDFImageObjects(){
   const textObjects=state.pdfTextObjects[state.pdfPage]||[];
   textObjects.forEach(object=>{
     const frame=document.createElement("div");frame.className="pdf-text-object";
+    frame.classList.toggle("selected",object.id===state.selectedPDFTextObjectId);
     frame.textContent=object.text;
     frame.style.left=(object.x*100)+"%";frame.style.top=(object.y*100)+"%";
     frame.style.width=(object.w*100)+"%";frame.style.height=(object.h*100)+"%";
     frame.style.color=object.color||"#202020";
+    frame.style.backgroundColor=object.background===false?"transparent":(object.backgroundColor||"#ffffff");
+    frame.style.fontFamily=object.fontFamily||"Arial,sans-serif";
+    frame.style.fontWeight=object.bold?"700":"400";
+    frame.style.fontStyle=object.italic?"italic":"normal";
     frame.style.fontSize=(object.fontScale*layer.clientHeight)+"px";
     const handle=document.createElement("span");handle.className="pdf-image-resize";
     frame.append(handle);layer.append(frame);
@@ -614,7 +666,11 @@ function renderPDFImageObjects(){
       start={x:event.clientX,y:event.clientY,width:rect.width,height:rect.height};
       origin={...object};frame.setPointerCapture?.(event.pointerId);
     };
-    frame.onpointerdown=event=>{if(event.target===handle)return;begin(event,"move");};
+    frame.onpointerdown=event=>{
+      selectPDFTextObject(object.id);
+      if(event.target===handle)return;
+      begin(event,"move");
+    };
     handle.onpointerdown=event=>begin(event,"resize");
     frame.onpointermove=event=>{
       if(!mode||!start)return;
@@ -699,16 +755,16 @@ async function exportEditedPDF(){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
       const dataUrl=state.pdfAnnotations[pageNumber];
       const pageCanvas=document.createElement("canvas");
-      let sourceImage=null;
-      if(dataUrl){
-        sourceImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
-        pageCanvas.width=sourceImage.width;pageCanvas.height=sourceImage.height;
-        pageCanvas.getContext("2d").drawImage(sourceImage,0,0);
-      }else{
-        const pdfPage=await state.pdf.getPage(index+1),viewport=pdfPage.getViewport({scale:2});
-        pageCanvas.width=Math.ceil(viewport.width);pageCanvas.height=Math.ceil(viewport.height);
-      }
+      const pdfPage=await state.pdf.getPage(index+1);
+      const viewport=pdfPage.getViewport({scale:2});
+      pageCanvas.width=Math.ceil(viewport.width);pageCanvas.height=Math.ceil(viewport.height);
       const pageContext=pageCanvas.getContext("2d");
+      await pdfPage.render({canvasContext:pageContext,viewport}).promise;
+      if(dataUrl){
+        const annotationImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
+        pageContext.drawImage(annotationImage,0,0,pageCanvas.width,pageCanvas.height);
+        annotationImage.close?.();
+      }
       for(const object of (state.pdfImageObjects[pageNumber]||[])){
         const objectImage=await createImageBitmap(await (await fetch(object.src)).blob());
         pageContext.drawImage(objectImage,object.x*pageCanvas.width,object.y*pageCanvas.height,
@@ -716,11 +772,12 @@ async function exportEditedPDF(){
         objectImage.close?.();
       }
       for(const object of (state.pdfTextObjects[pageNumber]||[])){
-        pageContext.save();pageContext.fillStyle="#ffffff";
-        pageContext.fillRect(object.x*pageCanvas.width,object.y*pageCanvas.height,
-          object.w*pageCanvas.width,object.h*pageCanvas.height);
+        pageContext.save();
+        if(object.background!==false){pageContext.fillStyle=object.backgroundColor||"#ffffff";
+          pageContext.fillRect(object.x*pageCanvas.width,object.y*pageCanvas.height,
+            object.w*pageCanvas.width,object.h*pageCanvas.height);}
         pageContext.fillStyle=object.color||"#202020";
-        pageContext.font=`${Math.max(8,object.fontScale*pageCanvas.height)}px Arial`;
+        pageContext.font=`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*pageCanvas.height)}px ${object.fontFamily||"Arial"}`;
         pageContext.textBaseline="top";
         pageContext.fillText(object.text,object.x*pageCanvas.width,object.y*pageCanvas.height,
           object.w*pageCanvas.width);
