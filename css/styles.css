@@ -102,3 +102,7 @@ body.dark{color-scheme:dark}
 .pdf-image-object img{display:block;width:100%;height:100%;object-fit:fill;pointer-events:none;user-select:none}
 .pdf-image-resize{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;border:2px solid white;border-radius:4px;background:var(--accent);box-shadow:0 1px 5px #0005;cursor:nwse-resize;touch-action:none}
 @media(max-width:600px){.pdf-image-resize{width:20px;height:20px;right:-9px;bottom:-9px}}
+
+.pdf-text-object{position:absolute;box-sizing:border-box;padding:1px;background:rgba(255,255,255,.92);border:1px dashed transparent;pointer-events:auto;touch-action:none;cursor:move;overflow:hidden;white-space:nowrap;line-height:1.15;user-select:none}
+.pdf-text-object:hover,.pdf-text-object:active{border-color:var(--accent)}
+.pdf-text-object .pdf-image-resize{z-index:2}

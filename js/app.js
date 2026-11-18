@@ -6,7 +6,7 @@ const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: 18, currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfEditTool: "view", pdfUndo: {}
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, pdfEditTool: "view", pdfUndo: {}
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -338,6 +338,7 @@ async function openEPUB(book, progress) {
 async function openPDF(book, progress) {
   state.pdfAnnotations = book.pdfAnnotations || {};
   state.pdfImageObjects = book.pdfImageObjects || {};
+  state.pdfTextObjects = book.pdfTextObjects || {};
   state.pdfUndo = {};
   state.pdfEditTool = "view";
   const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
@@ -560,14 +561,20 @@ async function replacePDFOCRLine(line){
   const replacement=prompt("Исправьте распознанную строку:",line.text);
   if(replacement===null||!replacement.trim())return;
   snapshotPDFAnnotation();
-  const ctx=state.pdfOverlay.getContext("2d");
-  const size=Math.max(8,Math.min(42,line.height*.82));
+  const canvas=state.pdfOverlay,ratio=Math.min(window.devicePixelRatio||1,2);
+  const pageWidth=canvas.width/ratio,pageHeight=canvas.height/ratio;
+  const ctx=canvas.getContext("2d");
   ctx.save();ctx.fillStyle="#ffffff";
   ctx.fillRect(Math.max(0,line.x-2),Math.max(0,line.y-1),line.width+5,line.height+3);
-  ctx.fillStyle="#202020";ctx.font=size+"px Arial";ctx.textBaseline="middle";
-  ctx.fillText(replacement.trim(),Math.max(0,line.x),line.y+line.height/2,Math.max(line.width*1.8,120));
-  ctx.restore();await persistPDFAnnotations();
-  toast("Строка заменена в визуальной редакции страницы.");
+  ctx.restore();
+  const list=state.pdfTextObjects[state.pdfPage]||(state.pdfTextObjects[state.pdfPage]=[]);
+  list.push({id:makeId(),text:replacement.trim(),x:line.x/pageWidth,y:line.y/pageHeight,
+    w:Math.min(.95,Math.max(line.width/pageWidth*1.25,.12)),
+    h:Math.min(.15,Math.max(line.height/pageHeight*1.8,.025)),
+    fontScale:Math.max(.008,Math.min(.04,line.height/pageHeight*.82)),color:"#202020"});
+  state.activeBook.pdfTextObjects=state.pdfTextObjects;
+  await persistPDFAnnotations();await put("books",state.activeBook);renderPDFImageObjects();
+  toast("Текст заменён. Его можно перемещать и менять размер за угловой маркер.");
 }
 async function insertPDFImage(file){
   if(!file||!file.type.startsWith("image/")||!state.pdfOverlay)return;
@@ -590,6 +597,48 @@ function renderPDFImageObjects(){
   const layer=$("pdfObjectLayer");if(!layer)return;
   layer.replaceChildren();
   const objects=state.pdfImageObjects[state.pdfPage]||[];
+  const textObjects=state.pdfTextObjects[state.pdfPage]||[];
+  textObjects.forEach(object=>{
+    const frame=document.createElement("div");frame.className="pdf-text-object";
+    frame.textContent=object.text;
+    frame.style.left=(object.x*100)+"%";frame.style.top=(object.y*100)+"%";
+    frame.style.width=(object.w*100)+"%";frame.style.height=(object.h*100)+"%";
+    frame.style.color=object.color||"#202020";
+    frame.style.fontSize=(object.fontScale*layer.clientHeight)+"px";
+    const handle=document.createElement("span");handle.className="pdf-image-resize";
+    frame.append(handle);layer.append(frame);
+    let mode="",start=null,origin=null;
+    const begin=(event,kind)=>{
+      event.preventDefault();event.stopPropagation();mode=kind;
+      const rect=layer.getBoundingClientRect();
+      start={x:event.clientX,y:event.clientY,width:rect.width,height:rect.height};
+      origin={...object};frame.setPointerCapture?.(event.pointerId);
+    };
+    frame.onpointerdown=event=>{if(event.target===handle)return;begin(event,"move");};
+    handle.onpointerdown=event=>begin(event,"resize");
+    frame.onpointermove=event=>{
+      if(!mode||!start)return;
+      const dx=(event.clientX-start.x)/start.width,dy=(event.clientY-start.y)/start.height;
+      if(mode==="move"){
+        object.x=Math.max(0,Math.min(1-object.w,origin.x+dx));
+        object.y=Math.max(0,Math.min(1-object.h,origin.y+dy));
+      }else{
+        object.w=Math.max(.06,Math.min(1-origin.x,origin.w+dx));
+        object.h=Math.max(.015,Math.min(.25,origin.h+dy));
+        object.fontScale=Math.max(.006,Math.min(.08,origin.fontScale+(dy*.45)));
+      }
+      frame.style.left=(object.x*100)+"%";frame.style.top=(object.y*100)+"%";
+      frame.style.width=(object.w*100)+"%";frame.style.height=(object.h*100)+"%";
+      frame.style.fontSize=(object.fontScale*layer.clientHeight)+"px";
+    };
+    const finish=async()=>{
+      if(!mode)return;mode="";start=null;origin=null;
+      state.activeBook.pdfTextObjects=state.pdfTextObjects;
+      try{await put("books",state.activeBook);toast("Исправленный текст сохранён.");}
+      catch(error){toast("Не удалось сохранить текст: "+error.message);}
+    };
+    frame.onpointerup=finish;frame.onpointercancel=finish;frame.onlostpointercapture=finish;
+  });
   objects.forEach(object=>{
     const frame=document.createElement("div");frame.className="pdf-image-object";
     frame.style.left=(object.x*100)+"%";frame.style.top=(object.y*100)+"%";
@@ -645,7 +694,7 @@ async function exportEditedPDF(){
       "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF");
     const PDFDocument=window.PDFLib.PDFDocument;
     const output=await PDFDocument.load(state.activeBook.data.slice(0));
-    const editedPages=new Set([...Object.keys(state.pdfAnnotations),...Object.keys(state.pdfImageObjects)]);
+    const editedPages=new Set([...Object.keys(state.pdfAnnotations),...Object.keys(state.pdfImageObjects),...Object.keys(state.pdfTextObjects)]);
     for(const pageNumber of editedPages){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
       const dataUrl=state.pdfAnnotations[pageNumber];
@@ -666,6 +715,17 @@ async function exportEditedPDF(){
           object.w*pageCanvas.width,object.h*pageCanvas.height);
         objectImage.close?.();
       }
+      for(const object of (state.pdfTextObjects[pageNumber]||[])){
+        pageContext.save();pageContext.fillStyle="#ffffff";
+        pageContext.fillRect(object.x*pageCanvas.width,object.y*pageCanvas.height,
+          object.w*pageCanvas.width,object.h*pageCanvas.height);
+        pageContext.fillStyle=object.color||"#202020";
+        pageContext.font=`${Math.max(8,object.fontScale*pageCanvas.height)}px Arial`;
+        pageContext.textBaseline="top";
+        pageContext.fillText(object.text,object.x*pageCanvas.width,object.y*pageCanvas.height,
+          object.w*pageCanvas.width);
+        pageContext.restore();
+      }
       sourceImage?.close?.();
       const png=await new Promise(resolve=>pageCanvas.toBlob(resolve,"image/png"));
       const embedded=await output.embedPng(await png.arrayBuffer()),page=output.getPage(index),size=page.getSize();
@@ -678,7 +738,7 @@ async function exportEditedPDF(){
     const name=base+"-edited.pdf";
     const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",
       author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,
-      addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{}};
+      addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{},pdfTextObjects:{}};
     await put("books",edited);
     const url=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
     const anchor=document.createElement("a");anchor.href=url;anchor.download=name;
