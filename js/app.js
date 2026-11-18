@@ -473,6 +473,33 @@ $("fontDown").onclick = () => {
   $("readerContent").style.fontSize = `${state.fontSize}px`;
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
+function getSelectedReaderText() {
+  const selection = window.getSelection?.();
+  const selected = selection?.toString().trim() || "";
+  if (!selected || !$("readerContent").contains(selection.anchorNode)) return "";
+  return selected;
+}
+async function copySelectedText() {
+  const selected = getSelectedReaderText();
+  if (!selected) { toast("Сначала выделите текст в документе"); return; }
+  try { await navigator.clipboard.writeText(selected); toast("Выделенный текст скопирован"); }
+  catch { const area=document.createElement("textarea"); area.value=selected; document.body.append(area); area.select(); const ok=document.execCommand("copy"); area.remove(); toast(ok ? "Выделенный текст скопирован" : "Не удалось скопировать текст"); }
+}
+async function shareSelectedText() {
+  const selected=getSelectedReaderText();
+  if (!selected) { toast("Сначала выделите текст в документе"); return; }
+  try { if(navigator.share) await navigator.share({title:state.activeBook?.title || "Текст из ©Mirror",text:selected}); else { await navigator.clipboard.writeText(selected); toast("Текст скопирован — вставьте его в нужное приложение"); } }
+  catch(error) { if(error.name!=="AbortError") toast("Не удалось открыть меню отправки"); }
+}
+async function shareCurrentBook() {
+  const book=state.activeBook; if(!book) return;
+  const file=new File([book.data],book.name,{type:book.type || "application/octet-stream"});
+  try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else { downloadBook(book); toast("Файл скачан. Теперь его можно прикрепить к сообщению"); } }
+  catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
+}
+$("copySelectionBtn").onclick=copySelectedText;
+$("shareSelectionBtn").onclick=shareSelectedText;
+$("shareBookBtn").onclick=shareCurrentBook;
 $("bookmarkBtn").onclick = async () => {
   if (!state.activeBook) return;
   const mark = {
