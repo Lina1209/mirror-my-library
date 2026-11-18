@@ -6,12 +6,14 @@
 <title>©Mirror — Моя библиотека</title><link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="css/styles.css">
 <script type="module" src="js/app.js"></script>
 <script type="module" src="js/translation.js"></script>
+<script type="module" src="js/document-studio.js"></script>
 </head>
 <body>
 <header class="topbar"><a class="brand" href="./" aria-label="Моя библиотека"><span class="brand-mark">M</span><span><b>©Mirror</b><small>личное книжное пространство</small></span></a>
 <div class="top-actions"><button id="themeBtn" class="icon-btn" aria-label="Сменить тему" title="Ночной режим">◐</button><button id="addTopBtn" class="primary">＋ Добавить файлы</button></div></header>
 <main class="layout"><aside class="sidebar"><div class="side-label">НАВИГАЦИЯ</div>
 <button class="nav-item active" data-view="library">▤ <span>Библиотека</span><b id="allCount">0</b></button>
+<button class="nav-item" id="openStudioBtn" type="button">✎ <span>Студия документов</span></button>
 <button class="nav-item" data-filter="reading">◷ <span>Читаю сейчас</span><b id="readingCount">0</b></button>
 <button class="nav-item" data-filter="finished">✓ <span>Прочитано</span><b id="finishedCount">0</b></button>
 <button class="nav-item" data-filter="favorites">♡ <span>Избранное</span><b id="favoriteCount">0</b></button>
@@ -22,6 +24,16 @@
 <div class="toolbar"><div><h2 id="sectionTitle">Все книги</h2><p id="sectionSubtitle">Ваше собрание в одном месте</p></div><label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Найти книгу или автора…"></label></div>
 <div id="dropZone" class="drop-zone"><input id="fileInput" type="file" multiple accept=".fb2,.zip,.epub,.pdf,.txt,.html,.htm,.docx,.xlsx,.xls,.csv,application/pdf" hidden><div class="upload-symbol">↥</div><div><b>Перетащите книги и документы сюда</b><span>или <button id="chooseFiles" class="text-btn">выберите файлы</button></span><small>FB2 · FB2.ZIP · EPUB · PDF · DOCX · XLSX · XLS · CSV · TXT · HTML</small></div></div>
 <div id="bookGrid" class="book-grid"></div><div id="emptyState" class="empty-state"><div class="empty-icon">▤</div><h3>Ваша библиотека пока пуста</h3><p>Добавьте первый файл — он появится здесь.</p><button id="emptyAddBtn" class="primary">＋ Добавить файл</button></div></section>
+<section id="documentStudioView" class="document-studio hidden">
+  <div class="studio-heading"><div><p class="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1>Студия документов</h1><p>Распознавайте сканы, редактируйте текст и создавайте новую редакцию.</p></div><button id="studioBack" class="secondary">← В библиотеку</button></div>
+  <div class="studio-card"><h2>1. Загрузить и распознать</h2><p>Поддерживаются сканированные PDF, JPG, PNG, WebP и другие изображения, которые открывает браузер.</p><input id="studioFile" type="file" accept=".pdf,image/*">
+    <label class="studio-label">Язык распознавания <select id="studioLanguage"><option value="rus+eng">Русский + английский</option><option value="rus">Русский</option><option value="eng">Английский</option><option value="deu">Немецкий</option><option value="fra">Французский</option><option value="spa">Испанский</option><option value="ita">Итальянский</option><option value="por">Португальский</option><option value="tur">Турецкий</option><option value="kaz">Казахский</option></select></label>
+    <button id="studioRecognize" class="primary">Распознать текст / OCR</button><progress id="studioProgress" max="100" value="0"></progress><p id="studioStatus" role="status">Выберите документ или скан.</p></div>
+  <div class="studio-card"><div class="studio-editor-head"><h2>2. Редактор документа</h2><div class="studio-tools"><button id="studioUndo" class="secondary">↶</button><button id="studioRedo" class="secondary">↷</button><button id="studioBold" class="secondary"><b>B</b></button><button id="studioItalic" class="secondary"><i>I</i></button><button id="studioH2" class="secondary">Заголовок</button><button id="studioParagraph" class="secondary">Абзац</button><button id="studioClear" class="secondary">Очистить</button></div></div>
+    <div id="studioEditor" class="studio-editor" contenteditable="true" spellcheck="true" aria-label="Редактор распознанного документа"><p>Здесь появится распознанный текст. Его можно исправить и отформатировать.</p></div>
+    <div class="studio-exports"><button id="studioSave" class="primary">Сохранить новую редакцию в библиотеку</button><button id="studioPDF" class="secondary">Создать PDF / Печать</button><button id="studioTXT" class="secondary">Скачать TXT</button><button id="studioDownloadHTML" class="secondary">Скачать HTML</button></div></div>
+  <p class="studio-caution">OCR восстанавливает содержание, но не гарантирует точное совпадение исходных шрифтов, таблиц и расположения элементов. Оригинал не изменяется. Для PDF выберите «Создать PDF / Печать», затем в системном диалоге — «Сохранить как PDF».</p>
+</section>
 <section id="readerView" class="reader-view hidden"><div class="reader-toolbar"><button id="backBtn" class="secondary">← Библиотека</button><div class="reader-book-title" id="readerBookTitle">Документ</div><div class="reader-controls"><button id="copySelectionBtn" class="icon-btn" title="Копировать выделенный текст">Копировать</button><button id="shareSelectionBtn" class="icon-btn" title="Поделиться выделенным текстом">Поделиться</button><button id="shareBookBtn" class="icon-btn" title="Поделиться файлом">↗ Файл</button><button id="fontDown" class="icon-btn" title="Уменьшить шрифт">A−</button><button id="fontUp" class="icon-btn" title="Увеличить шрифт">A＋</button><button id="bookmarkBtn" class="icon-btn" title="Закладка">☆</button><button id="fullscreenBtn" class="icon-btn" title="На весь экран">⛶</button></div></div>
 <div id="readerMeta" class="reader-meta"></div><div id="readerContent" class="reader-content" tabindex="0"></div>
 <div class="reader-footer"><button id="prevBtn" class="secondary">← Назад</button><span id="pageStatus">Готово к чтению</span><button id="nextBtn" class="secondary">Вперёд →</button></div></section>
