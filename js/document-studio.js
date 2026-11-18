@@ -48,24 +48,27 @@ async function recognizePDF(file,worker){
   }
 }
 function safeImportedStyle(value){
-  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","color","background-color","margin-top","margin-bottom","width","height","vertical-align","border","border-top","border-right","border-bottom","border-left","padding"]);
+  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","color","background-color","margin-top","margin-bottom","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
   const safe=[];
   String(value||"").split(";").forEach(part=>{
     const i=part.indexOf(":");if(i<1)return;
     const key=part.slice(0,i).trim().toLowerCase(),val=part.slice(i+1).trim();
     if(!allowed.has(key)||!val||/url\s*\(|expression|javascript:/i.test(val))return;
     if(key==="text-align"&&!/^(left|right|center|justify)$/i.test(val))return;
+    if(key==="vertical-align"&&!/^(top|middle|bottom|baseline)$/i.test(val))return;
     if(key==="font-weight"&&!/^(normal|bold|[1-9]00)$/i.test(val))return;
     if(key==="font-style"&&!/^(normal|italic|oblique)$/i.test(val))return;
-    if(["color","background-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
-    if(["width","height","margin-top","margin-bottom","padding"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    if(key==="table-layout"&&!/^(fixed|auto)$/i.test(val))return;
+    if(["color","background-color","border-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
+    if(["width","height","min-height","margin-top","margin-bottom","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    if(key==="border-style"&&!/^(none|solid|double|dotted|dashed|groove|ridge|inset|outset)$/i.test(val))return;
     safe.push(key+":"+val);
   });
   return safe.join(";");
 }
 function sanitizeImportedHTML(markup){
   const doc=new DOMParser().parseFromString(String(markup||""),"text/html");
-  const allowed=new Set(["P","DIV","SPAN","H1","H2","H3","H4","STRONG","B","EM","I","U","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","BR","BLOCKQUOTE","PRE","IMG"]);
+  const allowed=new Set(["P","DIV","SPAN","H1","H2","H3","H4","STRONG","B","EM","I","U","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","COLGROUP","COL","BR","BLOCKQUOTE","PRE","IMG"]);
   doc.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,link,meta").forEach(n=>n.remove());
   doc.body.querySelectorAll("*").forEach(node=>{
     if(!allowed.has(node.tagName)){node.replaceWith(...node.childNodes);return;}
@@ -79,15 +82,130 @@ function sanitizeImportedHTML(markup){
       const alt=attrs.find(a=>a.name.toLowerCase()==="alt")?.value;if(alt)node.setAttribute("alt",alt.slice(0,300));
       ["width","height"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isFinite(n)&&n>0&&n<=2400)node.setAttribute(key,String(Math.round(n)));});
     }
+    if(["TD","TH"].includes(node.tagName)){
+      ["rowspan","colspan"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isInteger(n)&&n>=1&&n<=100)node.setAttribute(key,String(n));});
+    }
   });
   return doc.body.innerHTML;
 }
+const WORD_NS="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+function xmlKids(node,name){return Array.from(node?.children||[]).filter(child=>child.localName===name);}
+function xmlKid(node,name){return xmlKids(node,name)[0]||null;}
+function xmlAttr(node,name){return node?.getAttribute("w:"+name)||node?.getAttributeNS(WORD_NS,name)||"";}
+function xmlNumber(node,name){const value=Number(xmlAttr(node,name));return Number.isFinite(value)?value:0;}
+function twipsToPx(value){return Math.round(value/15*100)/100;}
+function setDocxBorder(element,side,xmlBorder){
+  if(!xmlBorder)return;
+  const val=xmlAttr(xmlBorder,"val"),cssSide=side.toLowerCase();
+  if(val==="nil"||val==="none"){element.style["border"+cssSide]="none";return;}
+  const styleMap={single:"solid",double:"double",dotted:"dotted",dashed:"dashed",dashSmallGap:"dashed",dotDash:"dashed",dotDotDash:"dashed",thick:"solid"};
+  const cssStyle=styleMap[val]||"solid",sz=xmlNumber(xmlBorder,"sz");
+  const width=sz?Math.max(.5,Math.min(8,sz/6)):1;
+  let color=xmlAttr(xmlBorder,"color");if(!/^[0-9a-f]{6}$/i.test(color))color="777777";
+  element.style["border"+cssSide]=width+"px "+cssStyle+" #"+color;
+}
+function restoreDocxTableGeometry(xmlText){
+  const xml=new DOMParser().parseFromString(xmlText,"application/xml");
+  if(xml.querySelector("parsererror"))throw new Error("Некорректный XML таблиц DOCX");
+  const xmlTables=Array.from(xml.getElementsByTagNameNS(WORD_NS,"tbl"));
+  const htmlTables=[...editor.querySelectorAll("table")];
+  let restored=0;
+  xmlTables.forEach((xmlTable,tableIndex)=>{
+    const table=htmlTables[tableIndex];if(!table)return;
+    const tblPr=xmlKid(xmlTable,"tblPr"),grid=xmlKid(xmlTable,"tblGrid");
+    const gridWidths=xmlKids(grid,"gridCol").map(col=>xmlNumber(col,"w"));
+    const positiveWidths=gridWidths.filter(n=>n>0),averageWidth=positiveWidths.length?Math.round(positiveWidths.reduce((a,b)=>a+b,0)/positiveWidths.length):0;
+    gridWidths.forEach((width,index)=>{if(!width)gridWidths[index]=averageWidth;});
+    if(gridWidths.some(n=>n>0)){
+      const colgroup=document.createElement("colgroup");
+      gridWidths.forEach(width=>{const col=document.createElement("col");col.style.width=twipsToPx(width)+"px";colgroup.append(col);});
+      table.querySelector(":scope > colgroup")?.remove();table.insertBefore(colgroup,table.firstChild);
+      table.style.tableLayout="fixed";table.style.width=twipsToPx(gridWidths.reduce((a,b)=>a+b,0))+"px";
+    }
+    const tblW=xmlKid(tblPr,"tblW");
+    if(tblW){
+      const width=xmlNumber(tblW,"w"),type=xmlAttr(tblW,"type");
+      if(type==="pct"&&width>0){table.style.width=Math.min(100,width/50)+"%";table.dataset.docxWidthType="pct";table.dataset.docxWidth=String(width/50);}
+      else if(type==="dxa"&&width>0){table.style.width=twipsToPx(width)+"px";table.dataset.docxWidthType="dxa";table.dataset.docxWidth=String(width);}
+    }
+    const tableBorders=xmlKid(tblPr,"tblBorders");
+    const xmlRows=xmlKids(xmlTable,"tr"),htmlRows=[...table.rows],activeVertical=new Map();
+    xmlRows.forEach((xmlRow,rowIndex)=>{
+      const row=htmlRows[rowIndex];if(!row)return;
+      const trPr=xmlKid(xmlRow,"trPr"),height=xmlKid(trPr,"trHeight");
+      if(height&&xmlNumber(height,"val")>0){
+        const rawHeight=xmlNumber(height,"val"),rule=xmlAttr(height,"hRule")||"atLeast";
+        if(rule!=="auto")row.style.height=twipsToPx(rawHeight)+"px";
+        row.dataset.docxHeight=String(rawHeight);
+        row.dataset.docxHeightRule=rule;
+      }
+      if(xmlKid(trPr,"tblHeader"))row.dataset.docxHeader="true";
+      if(xmlKid(trPr,"cantSplit"))row.dataset.docxCantSplit="true";
+      const xmlCells=xmlKids(xmlRow,"tc"),htmlCells=[...row.cells];let gridIndex=0;
+      xmlCells.forEach((xmlCell,cellIndex)=>{
+        const cell=htmlCells[cellIndex];if(!cell)return;
+        const tcPr=xmlKid(xmlCell,"tcPr"),span=Math.max(1,Math.min(100,xmlNumber(xmlKid(tcPr,"gridSpan"),"val")||1));
+        if(span>1)cell.colSpan=span;
+        const tcW=xmlKid(tcPr,"tcW");
+        if(tcW&&xmlNumber(tcW,"w")>0){
+          const cellWidth=xmlNumber(tcW,"w"),widthType=xmlAttr(tcW,"type");
+          if(widthType==="dxa")cell.style.width=twipsToPx(cellWidth)+"px";
+          else if(widthType==="pct")cell.style.width=Math.min(100,cellWidth/50)+"%";
+        }
+        const shade=xmlKid(tcPr,"shd"),fill=xmlAttr(shade,"fill");
+        if(/^[0-9a-f]{6}$/i.test(fill))cell.style.backgroundColor="#"+fill;
+        const valign=xmlAttr(xmlKid(tcPr,"vAlign"),"val");
+        if(["top","center","bottom"].includes(valign))cell.style.verticalAlign=valign==="center"?"middle":valign;
+        const margins=xmlKid(tcPr,"tcMar");
+        ["top","right","bottom","left"].forEach(side=>{const m=xmlKid(margins,side);if(m&&xmlNumber(m,"w")>=0)cell.style["padding"+side[0].toUpperCase()+side.slice(1)]=twipsToPx(xmlNumber(m,"w"))+"px";});
+        const borders=xmlKid(tcPr,"tcBorders");
+        const isFirstRow=rowIndex===0,isLastRow=rowIndex===xmlRows.length-1;
+        const gridTotal=gridWidths.length||Math.max(1,...xmlRows.map(r=>xmlKids(r,"tc").reduce((sum,tc)=>sum+Math.max(1,xmlNumber(xmlKid(xmlKid(tc,"tcPr"),"gridSpan"),"val")||1),0)));
+        const borderFallback={
+          top:isFirstRow?xmlKid(tableBorders,"top"):xmlKid(tableBorders,"insideH"),
+          bottom:isLastRow?xmlKid(tableBorders,"bottom"):xmlKid(tableBorders,"insideH"),
+          left:gridIndex===0?xmlKid(tableBorders,"left"):xmlKid(tableBorders,"insideV"),
+          right:gridIndex+span>=gridTotal?xmlKid(tableBorders,"right"):xmlKid(tableBorders,"insideV")
+        };
+        ["top","right","bottom","left"].forEach(side=>setDocxBorder(cell,side,xmlKid(borders,side)||borderFallback[side]));
+        const paragraph=xmlKids(xmlCell,"p")[0],jc=xmlAttr(xmlKid(xmlKid(paragraph,"pPr"),"jc"),"val");
+        if(jc)cell.style.textAlign=jc==="both"?"justify":jc;
+        const merge=xmlKid(tcPr,"vMerge"),mergeValue=xmlAttr(merge,"val");
+        if(merge){
+          if(!mergeValue||mergeValue==="continue"){
+            const start=activeVertical.get(gridIndex);
+            if(start){start.rowSpan=(start.rowSpan||1)+1;cell.remove();}
+            else activeVertical.set(gridIndex,cell);
+          }else{
+            for(let col=0;col<span;col++)activeVertical.set(gridIndex+col,cell);
+          }
+        }else{
+          for(let col=0;col<span;col++)activeVertical.delete(gridIndex+col);
+        }
+        gridIndex+=span;
+      });
+      restored++;
+    });
+    table.dataset.docxTable="true";
+  });
+  return restored;
+}
 async function importDOCX(file){
   await loadScript(()=>!!window.mammoth,"https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js","Импорт DOCX");
-  const result=await window.mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
+  const bytes=await file.arrayBuffer();
+  const result=await window.mammoth.convertToHtml({arrayBuffer:bytes.slice(0)});
   editor.innerHTML=sanitizeImportedHTML(result.value);
-  const notes=result.messages?.length?(" Замечания импорта: "+result.messages.length+"."): "";
-  state.format="docx";say("DOCX загружен. Проверьте оформление и содержимое перед экспортом."+notes);
+  let tableNote="";
+  try{
+    await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение структуры таблиц DOCX");
+    const zip=await window.JSZip.loadAsync(bytes.slice(0)),documentXml=await zip.file("word/document.xml")?.async("text");
+    if(documentXml){const count=restoreDocxTableGeometry(documentXml);tableNote=" Таблиц обработано: "+count+".";}
+  }catch(error){
+    console.warn("Не удалось восстановить геометрию таблиц DOCX:",error);
+    tableNote=" Геометрия таблиц не восстановлена: "+error.message;
+  }
+  const notes=result.messages?.length?(" Замечания импорта Mammoth: "+result.messages.length+"."): "";
+  state.format="docx";say("DOCX загружен. Сохранены доступные объединения ячеек, размеры столбцов/строк и оформление таблиц."+tableNote+notes+" Проверьте документ перед экспортом.");
   setProgress(100);
 }
 async function loadSheetJS(){
@@ -202,6 +320,10 @@ function insertStudioPageBreak(){
 function modifyStudioTable(action){
   const cell=currentTableCell();if(!cell){say("Поставьте курсор внутрь ячейки таблицы.");return;}
   const row=cell.parentElement,table=cell.closest("table"),index=cell.cellIndex;
+  if(table.querySelector('td[rowspan]:not([rowspan="1"]),th[rowspan]:not([rowspan="1"]),td[colspan]:not([colspan="1"]),th[colspan]:not([colspan="1"])')){
+    say("В этой таблице есть объединённые ячейки. Чтобы не нарушить их структуру, добавление и удаление строк/столбцов пока отключено. Текст и оформление ячеек редактировать можно.");
+    return;
+  }
   if(action==="addRow"){
     const newRow=table.insertRow(row.rowIndex+1);
     [...row.cells].forEach(()=>newRow.insertCell());
@@ -256,23 +378,74 @@ async function exportDOCX(){
   if(!editor.innerText.trim()){say("Сначала загрузите или введите документ.");return;}
   say("Подготовка DOCX…");
   const d=await import("https://cdn.jsdelivr.net/npm/docx@8.5.0/+esm");
-  const {Document,Packer,Paragraph,TextRun,ImageRun,PageBreak,HeadingLevel,Table,TableRow,TableCell,WidthType,AlignmentType,ShadingType,BorderStyle}=d;
+  const {Document,Packer,Paragraph,TextRun,ImageRun,PageBreak,HeadingLevel,Table,TableRow,TableCell,WidthType,AlignmentType,ShadingType,BorderStyle,HeightRule}=d;
   const children=[];
-  const borders={top:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},bottom:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},left:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},right:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"}};
+  const defaultBorders={top:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},bottom:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},left:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},right:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"}};
   function blockAlignment(node){
     const align=node.style?.textAlign;
     return align==="center"?AlignmentType.CENTER:align==="right"?AlignmentType.RIGHT:align==="justify"?AlignmentType.JUSTIFIED:AlignmentType.LEFT;
+  }
+  function cssColor(value){
+    const hex=String(value||"").match(/#([0-9a-f]{6})/i)?.[1];if(hex)return hex.toUpperCase();
+    const rgb=String(value||"").match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    return rgb?[...rgb.slice(1,4)].map(v=>Number(v).toString(16).padStart(2,"0")).join("").toUpperCase():null;
+  }
+  function docxBorder(value){
+    if(!value)return null;
+    if(value==="none"||value==="hidden")return {style:BorderStyle.NONE,size:0,color:"FFFFFF"};
+    const match=String(value).match(/(\d+(?:\.\d+)?)px\s+(solid|double|dotted|dashed)\s+(.+)/i);
+    if(!match)return null;
+    const style=match[2].toLowerCase()==="double"?BorderStyle.DOUBLE:match[2].toLowerCase()==="dotted"?BorderStyle.DOTTED:match[2].toLowerCase()==="dashed"?BorderStyle.DASHED:BorderStyle.SINGLE;
+    return {style,size:Math.max(2,Math.min(24,Math.round(Number(match[1])*6))),color:cssColor(match[3])||"A0A0A0"};
+  }
+  function cellBorders(cell,isImported){
+    const out={};
+    [["top","Top"],["right","Right"],["bottom","Bottom"],["left","Left"]].forEach(([key,cap])=>{
+      const border=docxBorder(cell.style["border"+cap]||cell.style.border);
+      if(border)out[key]=border;
+    });
+    return Object.keys(out).length?out:(isImported?{}:defaultBorders);
+  }
+  function cellMargins(cell){
+    const px=(side,fallback)=>{const v=parseFloat(cell.style["padding"+side]||cell.style.padding||"");return Number.isFinite(v)?Math.max(0,Math.min(80,Math.round(v*15))):fallback;};
+    return {top:px("Top",80),right:px("Right",100),bottom:px("Bottom",80),left:px("Left",100)};
   }
   function addBlock(node){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
     if(node.dataset?.pageBreak==="true"){children.push(new Paragraph({children:[new PageBreak()]}));return;}
     if(node.tagName==="TABLE"){
-      const rows=[...node.rows].map(row=>new TableRow({children:[...row.cells].map(cell=>{
-        const bg=(cell.style.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
-        return new TableCell({children:[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})],
-          borders,shading:bg?{fill:bg,type:ShadingType.CLEAR}:undefined,verticalAlign:"center"});
-      })}));
-      if(rows.length)children.push(new Table({rows,width:{size:100,type:WidthType.PERCENTAGE},borders}));
+      const colgroup=node.querySelector(":scope > colgroup");
+      const gridWidths=colgroup?[...colgroup.children].map(col=>Math.round((parseFloat(col.style.width)||0)*15)): [];
+      const rows=[...node.rows].map(row=>{
+        const rowHeight=parseFloat(row.style.height||row.style.minHeight||""),storedRowHeight=Number(row.dataset.docxHeight)||0;
+        const rowOptions={children:[...row.cells].map(cell=>{
+          const bg=cssColor(cell.style.backgroundColor);
+          const cellOptions={
+            children:[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})],
+            borders:cellBorders(cell,node.dataset.docxTable==="true"),margins:cellMargins(cell),
+            verticalAlign:cell.style.verticalAlign==="middle"?"center":(cell.style.verticalAlign||"top")
+          };
+          if(cell.colSpan>1)cellOptions.columnSpan=cell.colSpan;
+          if(cell.rowSpan>1)cellOptions.rowSpan=cell.rowSpan;
+          if(bg)cellOptions.shading={fill:bg,type:ShadingType.CLEAR};
+          const cellWidthValue=cell.style.width||"",cellWidth=parseFloat(cellWidthValue);
+          if(cellWidth>0)cellOptions.width=cellWidthValue.includes("%")?{size:Math.min(100,cellWidth),type:WidthType.PERCENTAGE}:{size:Math.round(cellWidth*15),type:WidthType.DXA};
+          return new TableCell(cellOptions);
+        })};
+        if(storedRowHeight>0||rowHeight>0){const rule=row.dataset.docxHeightRule;rowOptions.height={value:storedRowHeight||Math.round(rowHeight*15),rule:rule==="exact"?HeightRule.EXACT:rule==="auto"?HeightRule.AUTO:HeightRule.ATLEAST};}
+        if(row.dataset.docxCantSplit==="true")rowOptions.cantSplit=true;
+        if(row.dataset.docxHeader==="true")rowOptions.tableHeader=true;
+        return new TableRow(rowOptions);
+      });
+      if(rows.length){
+        const totalWidth=gridWidths.length?gridWidths.reduce((a,b)=>a+b,0):0;
+        const isImported=node.dataset.docxTable==="true";
+        const storedWidth=Number(node.dataset.docxWidth)||0,storedType=node.dataset.docxWidthType;
+        const tableWidth=storedWidth&&storedType==="pct"?{size:Math.min(5000,storedWidth),type:WidthType.PERCENTAGE}:storedWidth&&storedType==="dxa"?{size:storedWidth,type:WidthType.DXA}:totalWidth?{size:totalWidth,type:WidthType.DXA}:{size:100,type:WidthType.PERCENTAGE};
+        const tableOptions={rows,width:tableWidth,borders:isImported?{}:defaultBorders};
+        if(gridWidths.length)tableOptions.columnWidths=gridWidths;
+        children.push(new Table(tableOptions));
+      }
     }else if(["P","DIV","H1","H2","H3","H4","LI","BLOCKQUOTE","PRE"].includes(node.tagName)){
       const opts={children:htmlRuns(node,TextRun,ImageRun),alignment:blockAlignment(node)};
       if(node.tagName==="H1")opts.heading=HeadingLevel.HEADING_1;
@@ -290,7 +463,7 @@ async function exportDOCX(){
   const doc=new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,right:850,bottom:1134,left:850}}},children}]});
   const blob=await Packer.toBlob(doc);
   download(blob,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.docx");
-  say("DOCX создан. Перенесены абзацы, выравнивание, заголовки, списки, базовые выделения, шрифт/цвет текста и простые таблицы с границами и фоном ячеек. Сложная вёрстка и специальные элементы могут отличаться от оригинала.");
+  say("DOCX создан. Перенесены объединённые ячейки, размеры столбцов и строк, заливка, границы, отступы и вертикальное выравнивание таблиц, а также текст и встроенные изображения. Проверьте итоговый файл: сложные вложенные таблицы и нестандартные стили могут отличаться.");
 }
 async function exportXLSX(){
   const table=editor.querySelector("table");if(!table){say("В редакторе нет таблицы для экспорта XLSX.");return;}

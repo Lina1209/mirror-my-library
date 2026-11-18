@@ -122,3 +122,10 @@ body.dark{color-scheme:dark}
 .studio-editor img{display:inline-block;max-width:100%;height:auto;object-fit:contain;vertical-align:middle}
 .studio-editor .studio-page-break{display:block;min-height:28px;margin:18px 0;padding:4px 8px;border-top:2px dashed var(--line);color:var(--muted);font-size:11px;text-align:center}
 .studio-editor [data-page-break="true"]::after{content:"Разрыв страницы";display:block}
+
+/* Preserve imported Word table geometry */
+.studio-editor table{border-collapse:collapse;max-width:100%}
+.studio-editor table[style*="table-layout: fixed"]{table-layout:fixed}
+.studio-editor colgroup col{box-sizing:border-box}
+.studio-editor tr[data-docx-header="true"]{break-inside:avoid}
+.studio-editor tr[data-docx-cant-split="true"]{break-inside:avoid}
