@@ -1075,6 +1075,30 @@ $("themeBtn").onclick=()=>{document.body.classList.toggle("dark");localStorage.s
 if(localStorage.getItem("mirror-theme")==="dark")document.body.classList.add("dark");
 const readerView = $("readerView");
 const fullscreenButton = $("fullscreenBtn");
+const bookModeButton = $("bookModeBtn");
+function setBookMode(enabled) {
+  readerView.classList.toggle("book-mode", enabled);
+  bookModeButton?.setAttribute("aria-pressed", String(enabled));
+  if (bookModeButton) bookModeButton.textContent = enabled ? "📖 Обычный вид" : "📖 Книжный режим";
+  localStorage.setItem("mirror-book-mode", enabled ? "on" : "off");
+  if (state.rendition) {
+    requestAnimationFrame(() => {
+      try { state.rendition.resize(); } catch (error) { console.warn("EPUB resize:", error); }
+    });
+  }
+}
+if (bookModeButton) {
+  setBookMode(localStorage.getItem("mirror-book-mode") === "on");
+  bookModeButton.addEventListener("click", () => setBookMode(!readerView.classList.contains("book-mode")));
+}
+window.addEventListener("resize", () => {
+  if (state.rendition) {
+    clearTimeout(window.__mirrorEpubResizeTimer);
+    window.__mirrorEpubResizeTimer = setTimeout(() => {
+      try { state.rendition.resize(); } catch (error) { console.warn("EPUB resize:", error); }
+    }, 120);
+  }
+});
 function syncReaderFullscreen() {
   const active = document.fullscreenElement === readerView;
   fullscreenButton.textContent = active ? "⤢" : "⛶";
