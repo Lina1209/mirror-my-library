@@ -244,7 +244,7 @@ function init() {
   makePanel();
   if (activeLanguage !== "ru" && endpoint) {
     document.documentElement.lang = "ru";
-    setTimeout(() => applyTranslation(), 250);
+    setTimeout(async () => { await populateLanguages(); $("translationLanguage").value = activeLanguage; await applyTranslation(); }, 250);
   }
   observer = new MutationObserver(records => {
     if (records.some(record => [...record.addedNodes].some(node =>
