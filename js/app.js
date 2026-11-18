@@ -1088,7 +1088,7 @@ refresh().catch(error => {
 
 
 // Озвучивание книг средствами синтеза речи браузера (Web Speech API).
-const tts = { utterance: null, voices: [], active: false };
+const tts = { utterance: null, voices: [], active: false, queue: [], token: 0 };
 const ttsVoiceSelect = $("ttsVoice");
 const ttsPlayButton = $("ttsPlayBtn");
 const ttsPauseButton = $("ttsPauseBtn");
@@ -1115,10 +1115,23 @@ if ("speechSynthesis" in window) {
   ttsPlayButton.title = "Озвучивание не поддерживается этим браузером";
 }
 
-function getCurrentSpeechText() {
+async function getCurrentSpeechText() {
   if (!state.activeBook) return "";
+  // PDF: извлекаем настоящий текстовый слой каждой страницы через PDF.js.
+  // Для сканированных страниц без текстового слоя потребуется OCR.
   if (state.activeBook.ext === "pdf" && state.pdf) {
-    return "";
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= state.pdf.numPages; pageNumber++) {
+      const page = await state.pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map(item => (typeof item.str === "string" ? item.str + (item.hasEOL ? "\\n" : " ") : ""))
+        .join("")
+        .replace(/[ \\t]+/g, " ")
+        .trim();
+      if (pageText) pages.push(pageText);
+    }
+    return pages.join("\\n\\n");
   }
   if (state.rendition?.getContents) {
     try {
@@ -1132,40 +1145,26 @@ function getCurrentSpeechText() {
   return $("readerContent")?.innerText?.trim() || $("readerContent")?.textContent?.trim() || "";
 }
 
-function updateTTSButtons() {
-  if (!ttsPlayButton) return;
-  const speaking = window.speechSynthesis?.speaking || false;
-  const paused = window.speechSynthesis?.paused || false;
-  ttsPauseButton.disabled = !speaking && !paused;
-  ttsStopButton.disabled = !speaking && !paused;
-  ttsPauseButton.textContent = paused ? "▶ Продолжить" : "Ⅱ Пауза";
-  ttsPlayButton.textContent = speaking && !paused ? "🔊 Читает…" : "🔊 Читать";
+function splitSpeechText(text, maxLength = 1800) {
+  const chunks = [];
+  let remaining = text.replace(/\\s+/g, " ").trim();
+  while (remaining.length) {
+    if (remaining.length <= maxLength) { chunks.push(remaining); break; }
+    let cut = remaining.lastIndexOf(". ", maxLength);
+    if (cut < maxLength * 0.55) cut = remaining.lastIndexOf(" ", maxLength);
+    if (cut < 1) cut = maxLength;
+    chunks.push(remaining.slice(0, cut + (remaining[cut] === "." ? 1 : 0)).trim());
+    remaining = remaining.slice(cut + (remaining[cut] === "." ? 1 : 0)).trim();
+  }
+  return chunks;
 }
 
-function stopBookSpeech() {
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  tts.utterance = null;
-  updateTTSButtons();
-}
-
-function startBookSpeech() {
-  if (!("speechSynthesis" in window)) {
-    toast("Этот браузер не поддерживает озвучивание.");
+function speakNextChunk(token) {
+  if (token !== tts.token || !tts.queue.length) {
+    if (token === tts.token) { tts.utterance = null; updateTTSButtons(); }
     return;
   }
-  if (!state.activeBook) {
-    toast("Сначала откройте книгу.");
-    return;
-  }
-  const text = getCurrentSpeechText();
-  if (!text) {
-    toast(state.activeBook.ext === "pdf"
-      ? "Для PDF сначала извлеките текст с помощью OCR."
-      : "На этой странице пока нет текста для озвучивания.");
-    return;
-  }
-  stopBookSpeech();
+  const text = tts.queue.shift();
   const utterance = new SpeechSynthesisUtterance(text);
   const selectedVoice = ttsVoiceSelect?.value;
   if (selectedVoice !== "" && tts.voices[Number(selectedVoice)]) {
@@ -1176,14 +1175,68 @@ function startBookSpeech() {
   }
   utterance.rate = Number($("ttsRate")?.value || 0.9);
   utterance.onstart = updateTTSButtons;
-  utterance.onend = updateTTSButtons;
+  utterance.onend = () => {
+    if (token === tts.token) speakNextChunk(token);
+  };
   utterance.onerror = event => {
+    if (token !== tts.token || event.error === "canceled" || event.error === "interrupted") return;
+    tts.queue = [];
     updateTTSButtons();
-    if (event.error !== "canceled" && event.error !== "interrupted") toast("Не удалось озвучить текст: " + event.error);
+    toast("Не удалось продолжить озвучивание: " + event.error);
   };
   tts.utterance = utterance;
   window.speechSynthesis.speak(utterance);
   updateTTSButtons();
+}
+
+function updateTTSButtons() {
+  if (!ttsPlayButton) return;
+  const speaking = window.speechSynthesis?.speaking || false;
+  const paused = window.speechSynthesis?.paused || false;
+  const hasQueue = tts.queue?.length > 0;
+  ttsPauseButton.disabled = !speaking && !paused && !hasQueue;
+  ttsStopButton.disabled = !speaking && !paused && !hasQueue;
+  ttsPauseButton.textContent = paused ? "▶ Продолжить" : "Ⅱ Пауза";
+  ttsPlayButton.textContent = (speaking || hasQueue) && !paused ? "🔊 Читает…" : "🔊 Читать";
+}
+
+function stopBookSpeech() {
+  if (!("speechSynthesis" in window)) return;
+  tts.token++;
+  tts.queue = [];
+  window.speechSynthesis.cancel();
+  tts.utterance = null;
+  updateTTSButtons();
+}
+
+async function startBookSpeech() {
+  if (!("speechSynthesis" in window)) {
+    toast("Этот браузер не поддерживает озвучивание.");
+    return;
+  }
+  if (!state.activeBook) {
+    toast("Сначала откройте книгу.");
+    return;
+  }
+  stopBookSpeech();
+  const playToken = tts.token;
+  let text = "";
+  try {
+    text = await getCurrentSpeechText();
+  } catch (error) {
+    console.error("Не удалось извлечь текст для озвучивания:", error);
+    toast("Не удалось извлечь текст из документа.");
+    return;
+  }
+  if (playToken !== tts.token) return;
+  if (!text) {
+    toast(state.activeBook.ext === "pdf"
+      ? "В этом PDF не найден текстовый слой. Для сканированных страниц сначала выполните OCR."
+      : "На этой странице пока нет текста для озвучивания.");
+    return;
+  }
+  tts.queue = splitSpeechText(text);
+  speakNextChunk(playToken);
 }
 
 ttsPlayButton?.addEventListener("click", startBookSpeech);
