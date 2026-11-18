@@ -113,8 +113,10 @@ function restoreDocxTableGeometry(xmlText){
   xmlTables.forEach((xmlTable,tableIndex)=>{
     const table=htmlTables[tableIndex];if(!table)return;
     const tblPr=xmlKid(xmlTable,"tblPr"),grid=xmlKid(xmlTable,"tblGrid");
-    const gridWidths=xmlKids(grid,"gridCol").map(col=>xmlNumber(col,"w")).filter(n=>n>0);
-    if(gridWidths.length){
+    const gridWidths=xmlKids(grid,"gridCol").map(col=>xmlNumber(col,"w"));
+    const positiveWidths=gridWidths.filter(n=>n>0),averageWidth=positiveWidths.length?Math.round(positiveWidths.reduce((a,b)=>a+b,0)/positiveWidths.length):0;
+    gridWidths.forEach((width,index)=>{if(!width)gridWidths[index]=averageWidth;});
+    if(gridWidths.some(n=>n>0)){
       const colgroup=document.createElement("colgroup");
       gridWidths.forEach(width=>{const col=document.createElement("col");col.style.width=twipsToPx(width)+"px";colgroup.append(col);});
       table.querySelector(":scope > colgroup")?.remove();table.insertBefore(colgroup,table.firstChild);
@@ -123,8 +125,8 @@ function restoreDocxTableGeometry(xmlText){
     const tblW=xmlKid(tblPr,"tblW");
     if(tblW){
       const width=xmlNumber(tblW,"w"),type=xmlAttr(tblW,"type");
-      if(type==="pct"&&width>0)table.style.width=Math.min(100,width/50)+"%";
-      else if(type==="dxa"&&width>0)table.style.width=twipsToPx(width)+"px";
+      if(type==="pct"&&width>0){table.style.width=Math.min(100,width/50)+"%";table.dataset.docxWidthType="pct";table.dataset.docxWidth=String(width);}
+      else if(type==="dxa"&&width>0){table.style.width=twipsToPx(width)+"px";table.dataset.docxWidthType="dxa";table.dataset.docxWidth=String(width);}
     }
     const tableBorders=xmlKid(tblPr,"tblBorders");
     const xmlRows=xmlKids(xmlTable,"tr"),htmlRows=[...table.rows],activeVertical=new Map();
@@ -133,7 +135,7 @@ function restoreDocxTableGeometry(xmlText){
       const trPr=xmlKid(xmlRow,"trPr"),height=xmlKid(trPr,"trHeight");
       if(height&&xmlNumber(height,"val")>0){
         const px=twipsToPx(xmlNumber(height,"val")),rule=xmlAttr(height,"hRule");
-        if(rule==="exact")row.style.height=px+"px";else row.style.minHeight=px+"px";
+        row.style.height=px+"px";
         row.dataset.docxHeightRule=rule||"atLeast";
       }
       if(xmlKid(trPr,"tblHeader"))row.dataset.docxHeader="true";
@@ -144,7 +146,11 @@ function restoreDocxTableGeometry(xmlText){
         const tcPr=xmlKid(xmlCell,"tcPr"),span=Math.max(1,Math.min(100,xmlNumber(xmlKid(tcPr,"gridSpan"),"val")||1));
         if(span>1)cell.colSpan=span;
         const tcW=xmlKid(tcPr,"tcW");
-        if(tcW&&xmlNumber(tcW,"w")>0&&xmlAttr(tcW,"type")==="dxa")cell.style.width=twipsToPx(xmlNumber(tcW,"w"))+"px";
+        if(tcW&&xmlNumber(tcW,"w")>0){
+          const cellWidth=xmlNumber(tcW,"w"),widthType=xmlAttr(tcW,"type");
+          if(widthType==="dxa")cell.style.width=twipsToPx(cellWidth)+"px";
+          else if(widthType==="pct")cell.style.width=Math.min(100,cellWidth/50)+"%";
+        }
         const shade=xmlKid(tcPr,"shd"),fill=xmlAttr(shade,"fill");
         if(/^[0-9a-f]{6}$/i.test(fill))cell.style.backgroundColor="#"+fill;
         const valign=xmlAttr(xmlKid(tcPr,"vAlign"),"val");
@@ -152,7 +158,15 @@ function restoreDocxTableGeometry(xmlText){
         const margins=xmlKid(tcPr,"tcMar");
         ["top","right","bottom","left"].forEach(side=>{const m=xmlKid(margins,side);if(m&&xmlNumber(m,"w")>=0)cell.style["padding"+side[0].toUpperCase()+side.slice(1)]=twipsToPx(xmlNumber(m,"w"))+"px";});
         const borders=xmlKid(tcPr,"tcBorders");
-        ["top","right","bottom","left"].forEach(side=>setDocxBorder(cell,side,xmlKid(borders,side)||xmlKid(tableBorders,side)));
+        const isFirstRow=rowIndex===0,isLastRow=rowIndex===xmlRows.length-1;
+        const gridTotal=gridWidths.length||Math.max(1,...xmlRows.map(r=>xmlKids(r,"tc").reduce((sum,tc)=>sum+Math.max(1,xmlNumber(xmlKid(xmlKid(tc,"tcPr"),"gridSpan"),"val")||1),0)));
+        const borderFallback={
+          top:isFirstRow?xmlKid(tableBorders,"top"):xmlKid(tableBorders,"insideH"),
+          bottom:isLastRow?xmlKid(tableBorders,"bottom"):xmlKid(tableBorders,"insideH"),
+          left:gridIndex===0?xmlKid(tableBorders,"left"):xmlKid(tableBorders,"insideV"),
+          right:gridIndex+span>=gridTotal?xmlKid(tableBorders,"right"):xmlKid(tableBorders,"insideV")
+        };
+        ["top","right","bottom","left"].forEach(side=>setDocxBorder(cell,side,xmlKid(borders,side)||borderFallback[side]));
         const paragraph=xmlKids(xmlCell,"p")[0],jc=xmlAttr(xmlKid(xmlKid(paragraph,"pPr"),"jc"),"val");
         if(jc)cell.style.textAlign=jc==="both"?"justify":jc;
         const merge=xmlKid(tcPr,"vMerge"),mergeValue=xmlAttr(merge,"val");
@@ -380,13 +394,13 @@ async function exportDOCX(){
     const style=match[2].toLowerCase()==="double"?BorderStyle.DOUBLE:match[2].toLowerCase()==="dotted"?BorderStyle.DOTTED:match[2].toLowerCase()==="dashed"?BorderStyle.DASHED:BorderStyle.SINGLE;
     return {style,size:Math.max(2,Math.min(24,Math.round(Number(match[1])*6))),color:cssColor(match[3])||"A0A0A0"};
   }
-  function cellBorders(cell){
+  function cellBorders(cell,isImported){
     const out={};
     [["top","Top"],["right","Right"],["bottom","Bottom"],["left","Left"]].forEach(([key,cap])=>{
       const border=docxBorder(cell.style["border"+cap]||cell.style.border);
       if(border)out[key]=border;
     });
-    return Object.keys(out).length?out:defaultBorders;
+    return Object.keys(out).length?out:(isImported?{}:defaultBorders);
   }
   function cellMargins(cell){
     const px=(side,fallback)=>{const v=parseFloat(cell.style["padding"+side]||cell.style.padding||"");return Number.isFinite(v)?Math.max(0,Math.min(80,Math.round(v*15))):fallback;};
@@ -404,7 +418,7 @@ async function exportDOCX(){
           const bg=cssColor(cell.style.backgroundColor);
           const cellOptions={
             children:[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})],
-            borders:cellBorders(cell),margins:cellMargins(cell),
+            borders:cellBorders(cell,node.dataset.docxTable==="true"),margins:cellMargins(cell),
             verticalAlign:cell.style.verticalAlign==="middle"?"center":(cell.style.verticalAlign||"top")
           };
           if(cell.colSpan>1)cellOptions.columnSpan=cell.colSpan;
@@ -421,7 +435,10 @@ async function exportDOCX(){
       });
       if(rows.length){
         const totalWidth=gridWidths.length?gridWidths.reduce((a,b)=>a+b,0):0;
-        const tableOptions={rows,width:totalWidth?{size:totalWidth,type:WidthType.DXA}:{size:100,type:WidthType.PERCENTAGE},borders:defaultBorders};
+        const isImported=node.dataset.docxTable==="true";
+        const storedWidth=Number(node.dataset.docxWidth)||0,storedType=node.dataset.docxWidthType;
+        const tableWidth=storedWidth&&storedType==="pct"?{size:Math.min(5000,storedWidth),type:WidthType.PERCENTAGE}:storedWidth&&storedType==="dxa"?{size:storedWidth,type:WidthType.DXA}:totalWidth?{size:totalWidth,type:WidthType.DXA}:{size:100,type:WidthType.PERCENTAGE};
+        const tableOptions={rows,width:tableWidth,borders:isImported?{}:defaultBorders};
         if(gridWidths.length)tableOptions.columnWidths=gridWidths;
         children.push(new Table(tableOptions));
       }
