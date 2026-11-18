@@ -1085,3 +1085,114 @@ refresh().catch(error => {
   console.error(error);
   toast("Браузер не разрешил локальное хранилище");
 });
+
+
+// Озвучивание книг средствами синтеза речи браузера (Web Speech API).
+const tts = { utterance: null, voices: [], active: false };
+const ttsVoiceSelect = $("ttsVoice");
+const ttsPlayButton = $("ttsPlayBtn");
+const ttsPauseButton = $("ttsPauseBtn");
+const ttsStopButton = $("ttsStopBtn");
+
+function loadTTSVoices() {
+  if (!("speechSynthesis" in window) || !ttsVoiceSelect) return;
+  tts.voices = window.speechSynthesis.getVoices();
+  const previous = ttsVoiceSelect.value;
+  ttsVoiceSelect.replaceChildren(new Option("Автоматический голос", ""));
+  tts.voices.forEach((voice, index) => {
+    const option = new Option(`${voice.name} — ${voice.lang}`, String(index));
+    ttsVoiceSelect.add(option);
+  });
+  if (previous && tts.voices[Number(previous)]) ttsVoiceSelect.value = previous;
+}
+if ("speechSynthesis" in window) {
+  loadTTSVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", loadTTSVoices);
+  // Совместимость с браузерами, где voiceschanged поддерживается как свойство.
+  window.speechSynthesis.onvoiceschanged = loadTTSVoices;
+} else if (ttsPlayButton) {
+  ttsPlayButton.disabled = true;
+  ttsPlayButton.title = "Озвучивание не поддерживается этим браузером";
+}
+
+function getCurrentSpeechText() {
+  if (!state.activeBook) return "";
+  if (state.activeBook.ext === "pdf" && state.pdf) {
+    return "";
+  }
+  if (state.rendition?.getContents) {
+    try {
+      const epubText = state.rendition.getContents()
+        .map(item => item.document?.body?.innerText || item.document?.body?.textContent || "")
+        .join("\\n")
+        .trim();
+      if (epubText) return epubText;
+    } catch (error) { console.warn("EPUB speech text:", error); }
+  }
+  return $("readerContent")?.innerText?.trim() || $("readerContent")?.textContent?.trim() || "";
+}
+
+function updateTTSButtons() {
+  if (!ttsPlayButton) return;
+  const speaking = window.speechSynthesis?.speaking || false;
+  const paused = window.speechSynthesis?.paused || false;
+  ttsPauseButton.disabled = !speaking && !paused;
+  ttsStopButton.disabled = !speaking && !paused;
+  ttsPauseButton.textContent = paused ? "▶ Продолжить" : "Ⅱ Пауза";
+  ttsPlayButton.textContent = speaking && !paused ? "🔊 Читает…" : "🔊 Читать";
+}
+
+function stopBookSpeech() {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  tts.utterance = null;
+  updateTTSButtons();
+}
+
+function startBookSpeech() {
+  if (!("speechSynthesis" in window)) {
+    toast("Этот браузер не поддерживает озвучивание.");
+    return;
+  }
+  if (!state.activeBook) {
+    toast("Сначала откройте книгу.");
+    return;
+  }
+  const text = getCurrentSpeechText();
+  if (!text) {
+    toast(state.activeBook.ext === "pdf"
+      ? "Для PDF сначала извлеките текст с помощью OCR."
+      : "На этой странице пока нет текста для озвучивания.");
+    return;
+  }
+  stopBookSpeech();
+  const utterance = new SpeechSynthesisUtterance(text);
+  const selectedVoice = ttsVoiceSelect?.value;
+  if (selectedVoice !== "" && tts.voices[Number(selectedVoice)]) {
+    utterance.voice = tts.voices[Number(selectedVoice)];
+    utterance.lang = utterance.voice.lang;
+  } else {
+    utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
+  }
+  utterance.rate = Number($("ttsRate")?.value || 0.9);
+  utterance.onstart = updateTTSButtons;
+  utterance.onend = updateTTSButtons;
+  utterance.onerror = event => {
+    updateTTSButtons();
+    if (event.error !== "canceled" && event.error !== "interrupted") toast("Не удалось озвучить текст: " + event.error);
+  };
+  tts.utterance = utterance;
+  window.speechSynthesis.speak(utterance);
+  updateTTSButtons();
+}
+
+ttsPlayButton?.addEventListener("click", startBookSpeech);
+ttsPauseButton?.addEventListener("click", () => {
+  if (!("speechSynthesis" in window)) return;
+  if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+  else window.speechSynthesis.pause();
+  updateTTSButtons();
+});
+ttsStopButton?.addEventListener("click", stopBookSpeech);
+$("backBtn")?.addEventListener("click", stopBookSpeech);
+window.addEventListener("beforeunload", stopBookSpeech);
