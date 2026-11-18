@@ -850,7 +850,7 @@ async function extractPDFText() {
         .map(item => typeof item.str === "string" ? item.str : "")
         .filter(Boolean)
         .join(" ")
-        .replace(/\\s+/g, " ")
+        .replace(/\s+/g, " ")
         .trim();
 
       // Если в PDF нет полноценного текстового слоя — распознаём изображение страницы.
@@ -886,7 +886,7 @@ async function extractPDFText() {
       pages.push(`Страница ${n}\\n${value}`);
     }
 
-    const extractedText = pages.join("\\n\\n");
+    const extractedText = pages.join("\n\n");
     if (!extractedText.trim()) throw new Error("В документе не удалось найти текст.");
 
     state.currentTextPages = splitText(extractedText);
@@ -1125,13 +1125,13 @@ async function getCurrentSpeechText() {
       const page = await state.pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
       const pageText = textContent.items
-        .map(item => (typeof item.str === "string" ? item.str + (item.hasEOL ? "\\n" : " ") : ""))
+        .map(item => (typeof item.str === "string" ? item.str + (item.hasEOL ? "\n" : " ") : ""))
         .join("")
-        .replace(/[ \\t]+/g, " ")
+        .replace(/[ \t]+/g, " ")
         .trim();
       if (pageText) pages.push(pageText);
     }
-    return pages.join("\\n\\n");
+    return pages.join("\n\n");
   }
   if (state.rendition?.getContents) {
     try {
@@ -1147,7 +1147,7 @@ async function getCurrentSpeechText() {
 
 function splitSpeechText(text, maxLength = 1800) {
   const chunks = [];
-  let remaining = text.replace(/\\s+/g, " ").trim();
+  let remaining = text.replace(/\s+/g, " ").trim();
   while (remaining.length) {
     if (remaining.length <= maxLength) { chunks.push(remaining); break; }
     let cut = remaining.lastIndexOf(". ", maxLength);
