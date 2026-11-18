@@ -19,8 +19,9 @@ export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const allowedOrigin = env.ALLOWED_ORIGIN || "";
-    if (!env.GOOGLE_TRANSLATE_API_KEY) return json({ error: "Translation service is not configured." }, 503, origin, allowedOrigin);
-    if (allowedOrigin && allowedOrigin !== "*" && origin !== allowedOrigin) {
+    if (!env.GOOGLE_TRANSLATE_API_KEY) return json({ error: "Translation service is not configured." }, 503, origin || "*", allowedOrigin || "*");
+    if (!allowedOrigin) return json({ error: "Configure the ALLOWED_ORIGIN variable in your Worker." }, 503, origin || "*", "*");
+    if (allowedOrigin !== "*" && origin !== allowedOrigin) {
       return json({ error: "Origin is not allowed." }, 403, origin, allowedOrigin);
     }
     if (request.method === "OPTIONS") {
