@@ -31,19 +31,56 @@ async function recognizePDF(file,worker){
   pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
   for(let n=1;n<=pdf.numPages;n++){
-    say("Обработка PDF: страница "+n+" из "+pdf.numPages);
-    const page=await pdf.getPage(n),text=await page.getTextContent();
-    let extracted=text.items.map(x=>x.str||"").filter(Boolean).join(" ").trim();
+    say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем исходный вид и извлекаем текст…");
+    const page=await pdf.getPage(n);
+    const textContent=await page.getTextContent();
+    // Восстанавливаем строки по вертикальным координатам PDF, а не склеиваем всю страницу в одну строку.
+    const textItems=textContent.items.filter(item=>typeof item.str==="string"&&item.str.trim());
+    const lines=[];
+    textItems.forEach(item=>{
+      const y=Number(item.transform?.[5]||0);
+      let line=lines.find(entry=>Math.abs(entry.y-y)<3);
+      if(!line){line={y,items:[]};lines.push(line);}
+      line.items.push(item);
+    });
+    lines.sort((x,y)=>y.y-x.y);
+    let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\\s+/g," ").trim()).filter(Boolean).join("\\n").trim();
+
+    // Встраиваем изображение исходной страницы: иллюстрации, таблицы и расположение остаются видимыми в редакции.
+    const base=page.getViewport({scale:1});
+    const previewScale=Math.min(1.45,1800/Math.max(base.width,base.height));
+    const previewViewport=page.getViewport({scale:previewScale});
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.ceil(previewViewport.width);canvas.height=Math.ceil(previewViewport.height);
+    const ctx=canvas.getContext("2d",{willReadFrequently:true});
+    await page.render({canvasContext:ctx,viewport:previewViewport}).promise;
+    const pageImage=document.createElement("img");
+    pageImage.className="studio-source-page-image";
+    pageImage.alt="Оригинальный вид страницы "+n+" из PDF";
+    pageImage.src=canvas.toDataURL("image/jpeg",0.86);
+    canvas.width=canvas.height=0;
+
     if(extracted.length<25){
-      const base=page.getViewport({scale:1}),scale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
-      const viewport=page.getViewport({scale}),canvas=document.createElement("canvas");
-      canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
-      const ctx=canvas.getContext("2d",{willReadFrequently:true});
-      await page.render({canvasContext:ctx,viewport}).promise;
-      const recognized=await worker.recognize(canvas);extracted=recognized.data.text||"";
-      canvas.width=canvas.height=0;
+      say("Страница "+n+" из "+pdf.numPages+": распознаём текст по изображению…");
+      const ocrCanvas=document.createElement("canvas");
+      const ocrScale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
+      const ocrViewport=page.getViewport({scale:ocrScale});
+      ocrCanvas.width=Math.ceil(ocrViewport.width);ocrCanvas.height=Math.ceil(ocrViewport.height);
+      await page.render({canvasContext:ocrCanvas.getContext("2d",{willReadFrequently:true}),viewport:ocrViewport}).promise;
+      const recognized=await worker.recognize(ocrCanvas);
+      extracted=recognized.data.text||"";
+      ocrCanvas.width=ocrCanvas.height=0;
     }
-    appendPageHeading(n);const p=document.createElement("p");p.textContent=extracted||"[Текст не распознан]";editor.append(p);
+
+    const pageBlock=document.createElement("section");
+    pageBlock.className="studio-source-page";
+    const heading=document.createElement("h2");heading.textContent="Страница "+n;
+    const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
+    const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
+    const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
+    textBlock.textContent=extracted||"[Текст не распознан]";
+    pageBlock.append(heading,imageCaption,pageImage,textCaption,textBlock);
+    editor.append(pageBlock);
     setProgress(n/pdf.numPages*100);
   }
 }
