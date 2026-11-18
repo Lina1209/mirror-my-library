@@ -566,3 +566,14 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
     padding: 20px 16px;
   }
 }
+
+/* Ссылка на страницу автора в нижней части библиотеки */
+.mirror-site-footer {
+  display:flex; flex-wrap:wrap; justify-content:center; align-items:center;
+  gap:8px 18px; padding:18px 14px; margin-top:28px;
+  border-top:1px solid var(--border, #d9cbb0);
+  color:var(--muted, #766b5d); font-size:.9rem; text-align:center;
+}
+.mirror-site-footer a { color:var(--accent, #65734c); font-weight:600; text-decoration:underline; text-underline-offset:3px; }
+.mirror-site-footer a:focus-visible { outline:2px solid currentColor; outline-offset:4px; border-radius:3px; }
+@media(max-width:480px){.mirror-site-footer{flex-direction:column; padding:16px 10px;}}
