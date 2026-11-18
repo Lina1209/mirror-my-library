@@ -5,7 +5,8 @@ const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
-  fontSize: 18, currentTextPages: [], textPage: 0
+  fontSize: 18, currentTextPages: [], textPage: 0,
+  pdfAnnotations: {}, pdfOverlay: null, pdfEditTool: "view", pdfUndo: {}
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -335,6 +336,9 @@ async function openEPUB(book, progress) {
 }
 
 async function openPDF(book, progress) {
+  state.pdfAnnotations = book.pdfAnnotations || {};
+  state.pdfUndo = {};
+  state.pdfEditTool = "view";
   const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
@@ -362,13 +366,159 @@ async function renderPDFPage() {
     viewport,
     transform: pixelRatio === 1 ? null : [pixelRatio, 0, 0, pixelRatio, 0, 0]
   }).promise;
-  $("readerContent").replaceChildren(canvas);
-  if(!$("pdfTextBtn")){const b=document.createElement("button");b.id="pdfTextBtn";b.className="secondary";b.textContent="Извлечь текст / OCR";b.onclick=extractPDFText;$("readerMeta").append(" ",b);}
+  const wrapper = document.createElement("div");
+  wrapper.className = "pdf-page-wrap";
+  wrapper.style.width = \`${Math.floor(viewport.width)}px\`;
+  wrapper.style.height = \`${Math.floor(viewport.height)}px\`;
+  wrapper.append(canvas);
+  const overlay = document.createElement("canvas");
+  overlay.className = "pdf-annotation-layer";
+  overlay.width = canvas.width; overlay.height = canvas.height;
+  overlay.style.width = canvas.style.width; overlay.style.height = canvas.style.height;
+  overlay.getContext("2d").setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  wrapper.append(overlay);
+  $("readerContent").replaceChildren(wrapper);
+  state.pdfOverlay = overlay;
+  await restorePDFAnnotationLayer(overlay, state.pdfAnnotations[state.pdfPage]);
+  attachPDFAnnotationEvents(overlay);
+  ensurePDFEditorControls();
+  updatePDFToolButtons();
   $("prevBtn").disabled = state.pdfPage <= 1;
   $("nextBtn").disabled = state.pdfPage >= state.pdf.numPages;
   setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);
   await saveProgress(state.activeBook.id, state.pdfPage / state.pdf.numPages * 100,
     { page: state.pdfPage });
+}
+
+
+function ensurePDFEditorControls() {
+  if ($("pdfEditorToolbar")) return;
+  const toolbar = document.createElement("div");
+  toolbar.id = "pdfEditorToolbar";
+  toolbar.className = "pdf-editor-toolbar";
+  const tools = [["view","Просмотр"],["text","Текст"],["pen","Перо"],["highlight","Маркер"],["eraser","Ластик"]];
+  tools.forEach(([tool,label]) => {
+    const button=document.createElement("button");
+    button.type="button"; button.className="secondary pdf-tool";
+    button.dataset.pdfTool=tool; button.textContent=label;
+    button.onclick=()=>{state.pdfEditTool=tool;updatePDFToolButtons();if(tool!=="view")toast("Инструмент: "+label);};
+    toolbar.append(button);
+  });
+  const undo=document.createElement("button");
+  undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
+  const save=document.createElement("button");
+  save.type="button";save.className="primary";save.textContent="Сохранить PDF";save.onclick=exportEditedPDF;
+  const note=document.createElement("small");
+  note.className="pdf-editor-note";
+  note.textContent="Исходная вёрстка сохраняется. Добавляйте заметки, текст и выделения.";
+  toolbar.append(undo,save,note);
+  $("readerMeta").append(toolbar);
+  const ocr=document.createElement("button");
+  ocr.id="pdfTextBtn";ocr.className="secondary";ocr.textContent="Извлечь текст / OCR";
+  ocr.onclick=extractPDFText;$("readerMeta").append(ocr);
+}
+function updatePDFToolButtons(){
+  document.querySelectorAll("[data-pdf-tool]").forEach(button=>{
+    const active=button.dataset.pdfTool===state.pdfEditTool;
+    button.classList.toggle("active",active);
+    button.setAttribute("aria-pressed",String(active));
+  });
+  if(state.pdfOverlay)state.pdfOverlay.style.pointerEvents=state.pdfEditTool==="view"?"none":"auto";
+}
+async function restorePDFAnnotationLayer(canvas,dataUrl){
+  const ctx=canvas.getContext("2d");ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!dataUrl)return;
+  await new Promise(resolve=>{
+    const image=new Image();
+    image.onload=()=>{ctx.drawImage(image,0,0,canvas.width,canvas.height);resolve();};
+    image.onerror=resolve;image.src=dataUrl;
+  });
+}
+function snapshotPDFAnnotation(){
+  if(!state.pdfOverlay||!state.pdf)return;
+  const history=state.pdfUndo[state.pdfPage]||(state.pdfUndo[state.pdfPage]=[]);
+  history.push(state.pdfOverlay.toDataURL("image/png"));
+  if(history.length>30)history.shift();
+}
+async function persistPDFAnnotations(){
+  if(!state.activeBook||!state.pdfOverlay)return;
+  state.pdfAnnotations[state.pdfPage]=state.pdfOverlay.toDataURL("image/png");
+  state.activeBook.pdfAnnotations=state.pdfAnnotations;
+  await put("books",state.activeBook);
+}
+function attachPDFAnnotationEvents(canvas){
+  let drawing=false,last=null;
+  const point=event=>{
+    const rect=canvas.getBoundingClientRect();
+    return {x:(event.clientX-rect.left)*canvas.width/rect.width/Math.min(window.devicePixelRatio||1,2),
+      y:(event.clientY-rect.top)*canvas.height/rect.height/Math.min(window.devicePixelRatio||1,2)};
+  };
+  canvas.onpointerdown=event=>{
+    if(state.pdfEditTool==="view")return;
+    event.preventDefault();canvas.setPointerCapture?.(event.pointerId);snapshotPDFAnnotation();
+    if(state.pdfEditTool==="text"){
+      const value=prompt("Введите текст для добавления в PDF:");
+      if(value&&value.trim()){
+        const ctx=canvas.getContext("2d");const p=point(event);
+        ctx.save();ctx.font="18px Arial";ctx.fillStyle="#202020";ctx.textBaseline="top";
+        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*22));
+        ctx.restore();persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
+      }
+      return;
+    }
+    drawing=true;last=point(event);
+  };
+  canvas.onpointermove=event=>{
+    if(!drawing||!last)return;event.preventDefault();
+    const next=point(event),ctx=canvas.getContext("2d");
+    ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
+    if(state.pdfEditTool==="eraser"){ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;}
+    else if(state.pdfEditTool==="highlight"){ctx.strokeStyle="rgba(255,224,55,.38)";ctx.lineWidth=20;}
+    else{ctx.strokeStyle="#d13d3d";ctx.lineWidth=2.5;}
+    ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();ctx.restore();last=next;
+  };
+  const finish=()=>{
+    if(!drawing)return;drawing=false;last=null;
+    persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
+  };
+  canvas.onpointerup=finish;canvas.onpointercancel=finish;canvas.onlostpointercapture=finish;
+}
+async function undoPDFAnnotation(){
+  const history=state.pdfUndo[state.pdfPage]||[];
+  if(!history.length||!state.pdfOverlay){toast("Пока нечего отменять");return;}
+  const previous=history.pop();
+  await restorePDFAnnotationLayer(state.pdfOverlay,previous);
+  state.pdfAnnotations[state.pdfPage]=previous;
+  state.activeBook.pdfAnnotations=state.pdfAnnotations;
+  await put("books",state.activeBook);toast("Последнее действие отменено");
+}
+async function exportEditedPDF(){
+  if(!state.activeBook||!state.pdf)return;
+  try{
+    await persistPDFAnnotations();
+    await loadGlobalScript(()=>!!window.PDFLib?.PDFDocument,
+      "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF");
+    const PDFDocument=window.PDFLib.PDFDocument;
+    const output=await PDFDocument.load(state.activeBook.data.slice(0));
+    for(const [pageNumber,dataUrl] of Object.entries(state.pdfAnnotations)){
+      const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
+      const png=await (await fetch(dataUrl)).arrayBuffer();
+      const image=await output.embedPng(png),page=output.getPage(index),size=page.getSize();
+      page.drawImage(image,{x:0,y:0,width:size.width,height:size.height});
+    }
+    const bytes=await output.save();
+    const data=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
+    const base=state.activeBook.name.replace(/\.pdf$/i,"");
+    const name=base+"-edited.pdf";
+    const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",
+      author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,
+      addedAt:Date.now(),favorite:false,pdfAnnotations:{}};
+    await put("books",edited);
+    const url=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
+    const anchor=document.createElement("a");anchor.href=url;anchor.download=name;
+    document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+    await refresh();toast("Новая PDF-копия сохранена и скачана. Оригинал сохранён отдельно.");
+  }catch(error){console.error("PDF export:",error);toast("Не удалось сохранить PDF: "+(error.message||"ошибка экспорта"));}
 }
 
 async function loadGlobalScript(test,src,name){
@@ -494,13 +644,16 @@ async function openBook(bookId) {
   state.epub = null;
   state.rendition = null;
   state.pdf = null;
+  state.pdfOverlay = null;
+  state.pdfAnnotations = {};
+  state.pdfUndo = {};
   state.currentTextPages = [];
   state.textPage = 0;
 
   $("libraryView").classList.add("hidden");
   $("readerView").classList.remove("hidden");
   $("readerBookTitle").textContent = book.title;
-  $("readerMeta").textContent = `${book.author || "Автор не указан"} · ${book.ext.toUpperCase()}`;
+  $("readerMeta").replaceChildren(document.createTextNode(`${book.author || "Автор не указан"} · ${book.ext.toUpperCase()}`));
   $("readerContent").textContent = "Загружаем книгу…";
   $("readerContent").style.fontSize = `${state.fontSize}px`;
 
