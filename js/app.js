@@ -1073,7 +1073,44 @@ const dropZone = $("dropZone");
 dropZone.addEventListener("drop", event => importFiles([...event.dataTransfer.files]));
 $("themeBtn").onclick=()=>{document.body.classList.toggle("dark");localStorage.setItem("mirror-theme",document.body.classList.contains("dark")?"dark":"light");};
 if(localStorage.getItem("mirror-theme")==="dark")document.body.classList.add("dark");
-$("fullscreenBtn").onclick=async()=>{try{if(!document.fullscreenElement)await $("readerView").requestFullscreen();else await document.exitFullscreen();}catch(e){toast("Полноэкранный режим недоступен");}};
+const readerView = $("readerView");
+const fullscreenButton = $("fullscreenBtn");
+function syncReaderFullscreen() {
+  const active = document.fullscreenElement === readerView;
+  fullscreenButton.textContent = active ? "⤢" : "⛶";
+  fullscreenButton.title = active ? "Выйти из полноэкранного режима" : "На весь экран";
+  fullscreenButton.setAttribute("aria-label", fullscreenButton.title);
+  readerView.classList.toggle("reader-fullscreen", active);
+}
+fullscreenButton.onclick=async()=>{
+  try {
+    if(document.fullscreenElement === readerView) await document.exitFullscreen();
+    else if(readerView.requestFullscreen) await readerView.requestFullscreen();
+    else toast("Полноэкранный режим не поддерживается этим браузером");
+  } catch(e) { toast("Полноэкранный режим недоступен"); }
+};
+document.addEventListener("fullscreenchange", syncReaderFullscreen);
+const readerMenuButton = $("readerMenuBtn");
+const readerSettingsMenu = $("readerSettingsMenu");
+function closeReaderMenu() {
+  readerSettingsMenu.hidden = true;
+  readerMenuButton.setAttribute("aria-expanded","false");
+}
+readerMenuButton.addEventListener("click", event => {
+  event.stopPropagation();
+  const opening = readerSettingsMenu.hidden;
+  readerSettingsMenu.hidden = !opening;
+  readerMenuButton.setAttribute("aria-expanded", String(opening));
+});
+readerSettingsMenu.addEventListener("click", event => {
+  if(event.target.closest("button")) closeReaderMenu();
+});
+document.addEventListener("click", event => {
+  if(!event.target.closest(".reader-menu-wrap")) closeReaderMenu();
+});
+document.addEventListener("keydown", event => {
+  if(event.key === "Escape") closeReaderMenu();
+});
 let touchX=0,touchY=0;$("readerContent").addEventListener("touchstart",e=>{touchX=e.changedTouches[0].clientX;touchY=e.changedTouches[0].clientY;},{passive:true});$("readerContent").addEventListener("touchend",e=>{const dx=e.changedTouches[0].clientX-touchX,dy=e.changedTouches[0].clientY-touchY;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25){if(dx<0)$("nextBtn").click();else $("prevBtn").click();}},{passive:true});
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
