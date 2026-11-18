@@ -47,13 +47,38 @@ async function recognizePDF(file,worker){
     setProgress(n/pdf.numPages*100);
   }
 }
+function safeImportedStyle(value){
+  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","color","background-color","margin-top","margin-bottom","width","height","vertical-align","border","border-top","border-right","border-bottom","border-left","padding"]);
+  const safe=[];
+  String(value||"").split(";").forEach(part=>{
+    const i=part.indexOf(":");if(i<1)return;
+    const key=part.slice(0,i).trim().toLowerCase(),val=part.slice(i+1).trim();
+    if(!allowed.has(key)||!val||/url\s*\(|expression|javascript:/i.test(val))return;
+    if(key==="text-align"&&!/^(left|right|center|justify)$/i.test(val))return;
+    if(key==="font-weight"&&!/^(normal|bold|[1-9]00)$/i.test(val))return;
+    if(key==="font-style"&&!/^(normal|italic|oblique)$/i.test(val))return;
+    if(["color","background-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
+    if(["width","height","margin-top","margin-bottom","padding"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    safe.push(key+":"+val);
+  });
+  return safe.join(";");
+}
 function sanitizeImportedHTML(markup){
   const doc=new DOMParser().parseFromString(String(markup||""),"text/html");
-  const allowed=new Set(["P","DIV","H1","H2","H3","H4","STRONG","B","EM","I","U","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","BR","BLOCKQUOTE","PRE"]);
-  doc.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,img,link,meta").forEach(n=>n.remove());
+  const allowed=new Set(["P","DIV","SPAN","H1","H2","H3","H4","STRONG","B","EM","I","U","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","BR","BLOCKQUOTE","PRE","IMG"]);
+  doc.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,link,meta").forEach(n=>n.remove());
   doc.body.querySelectorAll("*").forEach(node=>{
     if(!allowed.has(node.tagName)){node.replaceWith(...node.childNodes);return;}
-    [...node.attributes].forEach(a=>node.removeAttribute(a.name));
+    const attrs=[...node.attributes];attrs.forEach(a=>node.removeAttribute(a.name));
+    const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
+    if(style)node.setAttribute("style",style);
+    if(node.tagName==="IMG"){
+      const src=attrs.find(a=>a.name.toLowerCase()==="src")?.value||"";
+      if(!/^data:image\/(png|jpeg|gif);base64,[a-z0-9+/=]+$/i.test(src)){node.remove();return;}
+      node.setAttribute("src",src);
+      const alt=attrs.find(a=>a.name.toLowerCase()==="alt")?.value;if(alt)node.setAttribute("alt",alt.slice(0,300));
+      ["width","height"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isFinite(n)&&n>0&&n<=2400)node.setAttribute(key,String(Math.round(n)));});
+    }
   });
   return doc.body.innerHTML;
 }
@@ -112,7 +137,7 @@ function cleanEditorHTML(){
 }
 function documentHTML(){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}@media print{body{margin:15mm auto}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{body{margin:15mm auto}.studio-page-break{border:0;margin:0}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
 }
 function download(blob,name){
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
@@ -160,6 +185,20 @@ function insertStudioTable(){
   if(first){const nextRange=document.createRange();nextRange.selectNodeContents(first);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(nextRange);savedEditorRange=nextRange.cloneRange();}
   say("Добавлена таблица 3×3. Щёлкните по ячейке, чтобы редактировать её.");
 }
+function insertStudioPageBreak(){
+  restoreEditorSelection();
+  const marker=document.createElement("div");marker.className="studio-page-break";marker.dataset.pageBreak="true";marker.contentEditable="false";marker.textContent="Разрыв страницы";
+  const range=savedEditorRange;
+  if(range&&editor.contains(range.commonAncestorContainer)){
+    const node=range.startContainer.nodeType===Node.TEXT_NODE?range.startContainer.parentElement:range.startContainer;
+    const block=node.closest?.("p,div,h1,h2,h3,h4,ul,ol,blockquote,pre");
+    if(block&&block!==editor)block.after(marker);else editor.append(marker);
+  }else editor.append(marker);
+  const p=document.createElement("p");p.innerHTML="<br>";marker.after(p);
+  const nextRange=document.createRange();nextRange.selectNodeContents(p);nextRange.collapse(true);
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(nextRange);savedEditorRange=nextRange.cloneRange();
+  say("Добавлен разрыв страницы. Он сохранится в DOCX и при печати в PDF.");
+}
 function modifyStudioTable(action){
   const cell=currentTableCell();if(!cell){say("Поставьте курсор внутрь ячейки таблицы.");return;}
   const row=cell.parentElement,table=cell.closest("table"),index=cell.cellIndex;
@@ -177,28 +216,37 @@ function modifyStudioTable(action){
   }
   say("Структура таблицы обновлена. Изменения войдут в экспорт.");
 }
-function htmlRuns(node,TextRun){
+function htmlRuns(node,TextRun,ImageRun){
   const runs=[];
+  function imageBytes(dataUrl){
+    const match=String(dataUrl||"").match(/^data:image\/(png|jpeg|gif);base64,([a-z0-9+/=]+)$/i);
+    if(!match)return null;
+    try{return Uint8Array.from(atob(match[2]),c=>c.charCodeAt(0));}catch{return null;}
+  }
   function walk(n,style={}){
     if(n.nodeType===Node.TEXT_NODE){
-      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,
-        underline:style.underline?{}:undefined,font:style.font||undefined,size:style.size||undefined,
-        color:style.color||undefined,highlight:style.highlight||undefined}));
+      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,underline:style.underline?{}:undefined,font:style.font||undefined,size:style.size||undefined,color:style.color||undefined,highlight:style.highlight||undefined}));
       return;
     }
     if(n.nodeType!==Node.ELEMENT_NODE)return;
+    if(n.tagName==="IMG"){
+      const data=imageBytes(n.getAttribute("src"));
+      if(data){
+        const rawW=Number(n.getAttribute("width"))||n.naturalWidth||450,rawH=Number(n.getAttribute("height"))||n.naturalHeight||300;
+        const factor=Math.min(1,600/Math.max(rawW,rawH));
+        runs.push(new ImageRun({data,transformation:{width:Math.max(1,Math.round(rawW*factor)),height:Math.max(1,Math.round(rawH*factor))}}));
+      }
+      return;
+    }
     const css=n.style||{},fontSizeMap={"1":16,"2":18,"3":20,"4":24,"5":32,"6":48,"7":72};
-    const px=parseFloat(css.fontSize||"");
-    const fontColor=n.getAttribute?.("color");
+    const px=parseFloat(css.fontSize||""),fontColor=n.getAttribute?.("color");
     const color=(css.color||fontColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
-    const bg=(css.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
-    const htmlSize=n.getAttribute?.("size");
+    const bg=(css.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase(),htmlSize=n.getAttribute?.("size");
     const next={bold:style.bold||["B","STRONG"].includes(n.tagName)||css.fontWeight==="bold"||Number(css.fontWeight)>=600,
       italics:style.italics||["I","EM"].includes(n.tagName)||css.fontStyle==="italic",
       underline:style.underline||n.tagName==="U"||(css.textDecoration||"").includes("underline"),
       font:(css.fontFamily||n.getAttribute?.("face"))?.split(",")[0]?.replace(/["']/g,"")||style.font,
-      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),
-      color:color||style.color,highlight:bg||style.highlight};
+      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),color:color||style.color,highlight:bg||style.highlight};
     n.childNodes.forEach(child=>walk(child,next));
     if(n.tagName==="BR")runs.push(new TextRun({text:"\\n"}));
   }
@@ -208,7 +256,7 @@ async function exportDOCX(){
   if(!editor.innerText.trim()){say("Сначала загрузите или введите документ.");return;}
   say("Подготовка DOCX…");
   const d=await import("https://cdn.jsdelivr.net/npm/docx@8.5.0/+esm");
-  const {Document,Packer,Paragraph,TextRun,HeadingLevel,Table,TableRow,TableCell,WidthType,AlignmentType,ShadingType,BorderStyle}=d;
+  const {Document,Packer,Paragraph,TextRun,ImageRun,PageBreak,HeadingLevel,Table,TableRow,TableCell,WidthType,AlignmentType,ShadingType,BorderStyle}=d;
   const children=[];
   const borders={top:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},bottom:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},left:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},right:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"}};
   function blockAlignment(node){
@@ -217,15 +265,16 @@ async function exportDOCX(){
   }
   function addBlock(node){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
+    if(node.dataset?.pageBreak==="true"){children.push(new Paragraph({children:[new PageBreak()]}));return;}
     if(node.tagName==="TABLE"){
       const rows=[...node.rows].map(row=>new TableRow({children:[...row.cells].map(cell=>{
         const bg=(cell.style.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
-        return new TableCell({children:[new Paragraph({children:htmlRuns(cell,TextRun),alignment:blockAlignment(cell)})],
+        return new TableCell({children:[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})],
           borders,shading:bg?{fill:bg,type:ShadingType.CLEAR}:undefined,verticalAlign:"center"});
       })}));
       if(rows.length)children.push(new Table({rows,width:{size:100,type:WidthType.PERCENTAGE},borders}));
     }else if(["P","DIV","H1","H2","H3","H4","LI","BLOCKQUOTE","PRE"].includes(node.tagName)){
-      const opts={children:htmlRuns(node,TextRun),alignment:blockAlignment(node)};
+      const opts={children:htmlRuns(node,TextRun,ImageRun),alignment:blockAlignment(node)};
       if(node.tagName==="H1")opts.heading=HeadingLevel.HEADING_1;
       if(node.tagName==="H2")opts.heading=HeadingLevel.HEADING_2;
       if(node.tagName==="H3"||node.tagName==="H4")opts.heading=HeadingLevel.HEADING_3;
@@ -238,7 +287,7 @@ async function exportDOCX(){
   }
   [...editor.children].forEach(addBlock);
   if(!children.length)children.push(new Paragraph({text:editor.innerText}));
-  const doc=new Document({sections:[{children}]});
+  const doc=new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,right:850,bottom:1134,left:850}}},children}]});
   const blob=await Packer.toBlob(doc);
   download(blob,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.docx");
   say("DOCX создан. Перенесены абзацы, выравнивание, заголовки, списки, базовые выделения, шрифт/цвет текста и простые таблицы с границами и фоном ячеек. Сложная вёрстка и специальные элементы могут отличаться от оригинала.");
@@ -269,6 +318,7 @@ $("studioFontSize").addEventListener("change",e=>insertCommand("fontSize",e.targ
 $("studioTextColor").addEventListener("input",e=>insertCommand("foreColor",e.target.value));
 $("studioHighlight").addEventListener("input",e=>insertCommand("hiliteColor",e.target.value));
 $("studioInsertTable").addEventListener("click",insertStudioTable);
+$("studioPageBreak").addEventListener("click",insertStudioPageBreak);
 $("studioAddRow").addEventListener("click",()=>modifyStudioTable("addRow"));
 $("studioAddColumn").addEventListener("click",()=>modifyStudioTable("addColumn"));
 $("studioDeleteRow").addEventListener("click",()=>modifyStudioTable("deleteRow"));
