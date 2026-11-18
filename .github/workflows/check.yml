@@ -14,8 +14,8 @@ jobs:
           node-version: 22
       - name: Check JavaScript syntax
         run: |
-          node --check js/app.js
-          node --check js/db.js
-          node --check js/parsers.js
-          node --check js/translation.js
-          node --check worker/google-translate-worker.js
+          node --check --input-type=module < js/app.js
+          node --check --input-type=module < js/db.js
+          node --check --input-type=module < js/parsers.js
+          node --check --input-type=module < js/translation.js
+          node --check --input-type=module < worker/google-translate-worker.js
