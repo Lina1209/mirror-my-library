@@ -44,7 +44,7 @@ async function recognizePDF(file,worker){
       line.items.push(item);
     });
     lines.sort((x,y)=>y.y-x.y);
-    let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\\s+/g," ").trim()).filter(Boolean).join("\\n").trim();
+    let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\s+/g," ").trim()).filter(Boolean).join("\n").trim();
 
     // Встраиваем изображение исходной страницы: иллюстрации, таблицы и расположение остаются видимыми в редакции.
     const base=page.getViewport({scale:1});
@@ -114,7 +114,7 @@ function sanitizeImportedHTML(markup){
     if(style)node.setAttribute("style",style);
     const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
     const safeClasses=new Set(["studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
-    const keptClasses=classValue.split(/\\s+/).filter(name=>safeClasses.has(name));
+    const keptClasses=classValue.split(/\s+/).filter(name=>safeClasses.has(name));
     if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
       const src=attrs.find(a=>a.name.toLowerCase()==="src")?.value||"";
@@ -444,7 +444,7 @@ function htmlRuns(node,TextRun,ImageRun){
       font:(css.fontFamily||n.getAttribute?.("face"))?.split(",")[0]?.replace(/["']/g,"")||style.font,
       size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),color:color||style.color,highlight:bg||style.highlight};
     n.childNodes.forEach(child=>walk(child,next));
-    if(n.tagName==="BR")runs.push(new TextRun({text:"\\n"}));
+    if(n.tagName==="BR")runs.push(new TextRun({text:"\n"}));
   }
   walk(node);return runs.length?runs:[new TextRun({text:""})];
 }
