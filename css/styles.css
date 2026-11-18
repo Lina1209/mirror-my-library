@@ -129,3 +129,97 @@ body.dark{color-scheme:dark}
 .studio-editor colgroup col{box-sizing:border-box}
 .studio-editor tr[data-docx-header="true"]{break-inside:avoid}
 .studio-editor tr[data-docx-cant-split="true"]{break-inside:avoid}
+
+
+/* ©Mirror — спокойная палитра старинной библиотеки */
+:root{
+  color-scheme:light;
+  --bg:#f1ecdf;
+  --panel:#faf7ef;
+  --ink:#342f26;
+  --muted:#817766;
+  --line:#ded5c4;
+  --accent:#59664b;
+  --accent2:#e7e8d9;
+  --shadow:0 10px 32px rgba(65,53,34,.08);
+}
+body{background:var(--bg);color:var(--ink)}
+.topbar,.sidebar,.reader-view,.modal{background:var(--panel)}
+.topbar,.sidebar,.reader-view{border-color:var(--line)}
+.brand-mark{background:#344638;color:#f7f1e4;border-radius:11px}
+.primary{background:#59664b;color:#fffaf0}
+.primary:hover{background:#46543b;filter:none}
+.secondary,.icon-btn{background:#f7f2e7;border-color:#d9cfbd;color:#494233}
+.secondary:hover,.icon-btn:hover{background:#ebe4d5;border-color:#c7b99f}
+.nav-item{color:#766b59}
+.nav-item.active{background:#e6e6d7;color:#4e6043}
+.nav-item b{color:#9a8e7b}
+.side-label{color:#988b76}
+.storage-card{border-color:var(--line)}
+.storage-icon,.upload-symbol{color:#59664b}
+.privacy-note,.storage-card small{color:#8b806e}
+.welcome{background:linear-gradient(112deg,#263a30 0%,#405444 62%,#746b4d 100%)}
+.welcome .eyebrow{color:#d4c7a5}
+.welcome p:last-child{color:#e1ddcf}
+.welcome-art>span{color:#e5d5a9}
+.book-one{background:#b69b6b}
+.book-two{background:#956d62}
+.book-three{background:#778575}
+.toolbar h2,.empty-state h3{color:var(--ink)}
+.search{background:#fcfaf4;border-color:var(--line);color:#8e826e}
+.search input{color:var(--ink)}
+.drop-zone{background:#f8f4e9;border-color:#c8bda8}
+.upload-symbol{background:#e7e8d9}
+.text-btn{color:#59664b}
+.book-card{background:#fcfaf4;border-color:#e2d9c9;box-shadow:0 4px 14px rgba(65,53,34,.06)}
+.book-card:hover{box-shadow:var(--shadow)}
+.cover{background:linear-gradient(145deg,#b7aa83,#7c8064)}
+.cover.pdf{background:linear-gradient(145deg,#a87969,#704b40)}
+.cover.epub{background:linear-gradient(145deg,#82917c,#435e52)}
+.cover.fb2{background:linear-gradient(145deg,#b59a68,#76613e)}
+.cover.txt{background:linear-gradient(145deg,#9b9278,#625c49)}
+.progress-track{background:#e8e0d1}
+.progress-fill{background:#78815a}
+.empty-icon{color:#a69a7c}
+.reader-content{color:#393328}
+.reader-footer{border-color:var(--line)}
+.modal::backdrop{background:rgba(37,32,23,.55)}
+.toast{background:#344638;color:#fffaf0}
+.studio-card{background:var(--panel);border-color:var(--line)}
+.studio-editor{background:#f7f2e7;color:#393328;border-color:#d9cfbd}
+.studio-editor p{color:#393328}
+.studio-editor th{background:#e7e8d9}
+.studio-inline-setting,.studio-inline-setting select{border-color:var(--line)}
+.pdf-editor-toolbar{background:var(--panel);border-color:var(--line)}
+.pdf-editor-setting input,.pdf-editor-setting select{background:var(--panel);border-color:var(--line);color:var(--ink)}
+.pdf-editor-tool.active{background:var(--accent2);color:var(--accent)}
+.translation-panel{background:var(--panel);border-color:var(--line);color:var(--ink)}
+.translation-panel input,.translation-panel select{background:#f7f2e7;border-color:var(--line);color:var(--ink)}
+body.dark{
+  color-scheme:dark;
+  --bg:#201f1a;
+  --panel:#2b2a23;
+  --ink:#eee7d7;
+  --muted:#b5aa94;
+  --line:#484437;
+  --accent:#a9ad83;
+  --accent2:#414638;
+  --shadow:none;
+}
+.dark .topbar,.dark .sidebar,.dark .reader-view,.dark .modal,.dark .studio-card{background:var(--panel)}
+.dark .brand-mark{background:#a9ad83;color:#25251e}
+.dark .primary{background:#87916a;color:#171a13}
+.dark .secondary,.dark .icon-btn{background:#343329;border-color:#514b3c;color:#eee7d7}
+.dark .secondary:hover,.dark .icon-btn:hover{background:#414033}
+.dark .welcome{background:linear-gradient(112deg,#1d3027 0%,#304437 62%,#514c35 100%)}
+.dark .search,.dark .drop-zone,.dark .studio-editor,.dark .translation-panel input,.dark .translation-panel select{background:#24231d;color:var(--ink);border-color:var(--line)}
+.dark .book-card{background:#302f27;border-color:var(--line)}
+.dark .cover{filter:saturate(.8) brightness(.85)}
+.dark .reader-content,.dark .studio-editor p{color:var(--ink)}
+.dark .progress-track{background:#454236}
+.dark .nav-item.active{background:#414638;color:#d8d9b7}
+.dark .toast{background:#e2ddc9;color:#27271f}
+@media(max-width:600px){
+  .topbar{background:var(--panel)}
+  .welcome{border-radius:15px}
+}
