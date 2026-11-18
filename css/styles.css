@@ -372,3 +372,29 @@ body.dark{
 #studioPageCounter{font:600 13px Georgia,serif;min-width:112px;text-align:center}
 .studio-page-hint{font-size:11px;color:var(--muted)}
 .studio-editor{touch-action:pan-y pinch-zoom}
+
+
+/* Читалка: компактное выпадающее меню настроек и настоящий режим полного экрана */
+.reader-menu-wrap{position:relative;display:flex;align-items:center;flex:0 0 auto}
+.reader-menu-btn{width:44px;height:44px;border:1px solid var(--line);border-radius:11px;background:var(--panel);color:var(--ink);font-size:22px;line-height:1;cursor:pointer;touch-action:manipulation}
+.reader-menu-btn:hover{background:var(--accent2)}
+.reader-settings-menu{position:absolute;z-index:40;top:calc(100% + 10px);right:0;width:min(390px,calc(100vw - 28px));max-height:min(76vh,680px);overflow:auto;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 38px rgba(42,35,24,.18)}
+.reader-settings-menu[hidden]{display:none}
+.reader-menu-heading{font:600 15px Georgia,serif;color:var(--ink);padding:2px 4px 12px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.reader-settings-menu .reader-controls{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:7px}
+.reader-settings-menu .tts-setting{flex:1 1 145px;justify-content:space-between;padding:6px 2px}
+.reader-settings-menu .tts-setting select{max-width:175px}
+.reader-toolbar{position:relative}
+.reader-fullscreen{position:fixed!important;inset:0!important;z-index:1000!important;width:100vw!important;height:100dvh!important;max-width:none!important;min-height:0!important;margin:0!important;border:0!important;border-radius:0!important;overflow:auto!important;background:var(--panel)!important;display:flex;flex-direction:column}
+.reader-fullscreen .reader-toolbar{position:sticky;top:0;z-index:5;background:var(--panel)}
+.reader-fullscreen .reader-meta{flex:0 0 auto}
+.reader-fullscreen .reader-content{width:min(900px,100% - 32px);max-width:900px;flex:1 0 auto;min-height:0;margin:20px auto;padding:0 30px 36px}
+.reader-fullscreen .reader-footer{position:sticky;bottom:0;z-index:5;background:var(--panel)}
+@media(max-width:700px){
+  .reader-menu-btn{width:42px;height:42px}
+  .reader-settings-menu{right:0;width:min(350px,calc(100vw - 20px));padding:12px}
+  .reader-settings-menu .reader-controls{justify-content:flex-start}
+  .reader-fullscreen .reader-toolbar{padding:10px}
+  .reader-fullscreen .reader-book-title{font-size:14px}
+  .reader-fullscreen .reader-content{width:100%;padding:0 18px 28px;margin:14px auto}
+}
