@@ -486,3 +486,83 @@ button{min-height:40px;touch-action:manipulation}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
+
+/* ©Mirror — книжный режим чтения: бумажная страница, поля и адаптивная ширина */
+.reader-view.book-mode {
+  --book-paper: #f7f0df;
+  --book-ink: #3b3024;
+  background: var(--book-paper);
+  color: var(--book-ink);
+  border-color: #d9cbb0;
+}
+.reader-view.book-mode .reader-content {
+  max-width: min(860px, calc(100% - 36px));
+  min-height: 58vh;
+  margin: 22px auto;
+  padding: clamp(22px, 4vw, 58px) clamp(20px, 6vw, 76px);
+  background: #fffaf0;
+  color: #3b3024;
+  border: 1px solid #e7dcc7;
+  border-radius: 5px;
+  box-shadow: 0 8px 28px rgba(77, 57, 31, .10);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(16px, 1.35vw, 20px);
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.reader-view.book-mode .reader-content img,
+.reader-view.book-mode .reader-content canvas,
+.reader-view.book-mode .reader-content svg {
+  max-width: 100%;
+  height: auto;
+}
+.reader-view.book-mode .reader-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.reader-view.book-mode .reader-toolbar,
+.reader-view.book-mode .reader-footer {
+  background: #f1e7d4;
+  border-color: #dfd1b8;
+}
+.reader-view.book-mode .reader-book-title,
+.reader-view.book-mode .reader-footer,
+.reader-view.book-mode .reader-meta { color: #574632; }
+.reader-view.book-mode .reader-content pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+body.dark .reader-view.book-mode {
+  --book-paper: #24231f;
+  --book-ink: #eee4d1;
+  background: #24231f;
+  color: #eee4d1;
+  border-color: #514838;
+}
+body.dark .reader-view.book-mode .reader-content {
+  background: #2d2a24;
+  color: #eee4d1;
+  border-color: #514838;
+}
+body.dark .reader-view.book-mode .reader-toolbar,
+body.dark .reader-view.book-mode .reader-footer { background: #302b23; border-color: #514838; }
+body.dark .reader-view.book-mode .reader-book-title,
+body.dark .reader-view.book-mode .reader-footer,
+body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
+@media (max-width: 700px) {
+  .reader-view.book-mode .reader-content {
+    width: calc(100% - 16px);
+    max-width: none;
+    min-height: 60vh;
+    margin: 10px auto;
+    padding: 22px 18px;
+    border-radius: 3px;
+    font-size: clamp(16px, 4.3vw, 19px);
+    line-height: 1.75;
+  }
+  .reader-view.book-mode:fullscreen .reader-content {
+    width: calc(100% - 12px);
+    padding: 20px 16px;
+  }
+}
