@@ -223,3 +223,74 @@ body.dark{
   .topbar{background:var(--panel)}
   .welcome{border-radius:15px}
 }
+
+
+/* ©Mirror — единая тихая библиотечная атмосфера */
+:root{
+  --bg:#eee8da;--panel:#f8f4e9;--ink:#352f25;--muted:#817662;
+  --line:#ddd3c0;--accent:#59634a;--accent2:#e5e5d5;
+  --shadow:0 6px 22px rgba(58,48,32,.055);
+}
+html{background:var(--bg)}
+body{background:var(--bg);color:var(--ink)}
+a{color:#59634a}
+button,input,select,textarea{accent-color:var(--accent)}
+:focus-visible{outline:2px solid #8b906b;outline-offset:2px}
+::selection{background:#d9ddc5;color:#302d23}
+.topbar,.sidebar,.reader-view,.modal,.studio-card,.translation-panel{
+  background:var(--panel);border-color:var(--line);box-shadow:none
+}
+.topbar{box-shadow:0 1px 0 rgba(73,61,42,.025)}
+.brand-mark{background:#354638;color:#f8f3e7}
+.primary{background:#59634a;color:#fbf7ec;box-shadow:none}
+.primary:hover{background:#48533c}
+.secondary,.icon-btn{background:#f3eedf;border-color:#d8ceba;color:#494233;box-shadow:none}
+.secondary:hover,.icon-btn:hover{background:#eae3d2}
+.nav-item{color:#756a57}
+.nav-item.active{background:#e5e5d5;color:#4f5c42}
+.welcome{background:#35483b;border:1px solid #465748;box-shadow:none}
+.welcome .eyebrow{color:#d5c9a9}
+.welcome p:last-child{color:#e5e0d2}
+.welcome-art{opacity:.78}
+.toolbar h2,.studio-heading h1,.studio-card h2,.reader-book-title{color:var(--ink)}
+.search,.drop-zone,.studio-editor,.translation-panel input,.translation-panel select{
+  background:#f4efe3;border-color:var(--line);color:var(--ink);box-shadow:none
+}
+.drop-zone{border-style:dashed}
+.book-card{background:#faf7ee;border-color:#e1d8c7;box-shadow:0 2px 9px rgba(58,48,32,.035)}
+.book-card:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.cover{filter:saturate(.72);box-shadow:inset 0 0 0 1px rgba(255,250,235,.12)}
+.cover:before{border-color:rgba(250,245,230,.42)}
+.book-title,.reader-content,.studio-editor{color:var(--ink)}
+.progress-track{background:#e5ddcd}
+.progress-fill{background:#78815d}
+.empty-state,.empty-state p{color:var(--muted)}
+.toast{background:#354638;color:#faf5e8;box-shadow:0 5px 18px rgba(35,40,30,.14)}
+.modal::backdrop{background:rgba(38,34,26,.48)}
+.studio-editor{background:#f5f0e4;border-color:#d9cfbd}
+.studio-editor th,.sheet-table th{background:#e7e6d7}
+.pdf-editor-toolbar{background:var(--panel);border-color:var(--line);box-shadow:none}
+.pdf-page-wrap{box-shadow:0 3px 16px rgba(52,44,31,.12)}
+.pdf-text-object.selected{box-shadow:0 0 0 2px rgba(89,99,74,.14)}
+.translation-panel{box-shadow:0 10px 30px rgba(52,44,31,.12)}
+body.dark{
+  --bg:#211f19;--panel:#2b2921;--ink:#eee7d8;--muted:#b5aa94;
+  --line:#484437;--accent:#a9ad83;--accent2:#414638;--shadow:none
+}
+.dark .topbar,.dark .sidebar,.dark .reader-view,.dark .modal,.dark .studio-card,
+.dark .translation-panel,.dark .book-card{background:var(--panel);border-color:var(--line)}
+.dark .search,.dark .drop-zone,.dark .studio-editor,
+.dark .translation-panel input,.dark .translation-panel select{
+  background:#24231d;color:var(--ink);border-color:var(--line)
+}
+.dark .secondary,.dark .icon-btn{background:#343329;border-color:#514b3c;color:var(--ink)}
+.dark .welcome{background:#293b30;border-color:#405044}
+.dark .book-card{box-shadow:none}
+.dark .cover{filter:saturate(.58) brightness(.78)}
+.dark .studio-editor th,.dark .sheet-table th{background:#414638}
+.dark a{color:#c4c99e}
+@media(max-width:600px){
+  .topbar{box-shadow:0 1px 0 rgba(73,61,42,.025)}
+  .content{padding-top:18px}
+  .welcome{box-shadow:none}
+}
