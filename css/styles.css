@@ -294,3 +294,10 @@ body.dark{
   .content{padding-top:18px}
   .welcome{box-shadow:none}
 }
+
+/* Озвучивание книг */
+.tts-setting{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11px;white-space:nowrap}
+.tts-setting select{max-width:155px;min-width:90px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);color:var(--ink);font:inherit}
+#ttsPlayBtn{background:var(--accent);color:#fff;border-color:var(--accent)}
+#ttsPauseBtn:disabled,#ttsStopBtn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:600px){.reader-controls{flex-wrap:wrap;justify-content:center}.tts-setting{font-size:10px}.tts-setting select{max-width:135px}}
