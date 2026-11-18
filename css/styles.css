@@ -66,3 +66,13 @@ body.dark{color-scheme:dark}
 .translation-panel p{font-size:11px;line-height:1.5;color:var(--muted);margin:12px 0 0}
 .translation-panel p.translation-error{color:#c44}
 @media(max-width:600px){.translation-panel{right:10px;top:60px}.translation-toggle{padding:9px 10px;font-size:12px}.top-actions{gap:6px}}
+
+/* PDF reader annotation editor */
+.pdf-page-wrap{position:relative;margin:0 auto;max-width:100%;box-shadow:0 4px 24px rgba(0,0,0,.14);background:#fff;overflow:hidden}
+.pdf-page-wrap>canvas:first-child{display:block;max-width:100%;height:auto}
+.pdf-annotation-layer{position:absolute;inset:0;z-index:2;touch-action:none}
+.pdf-editor-toolbar{display:flex;gap:7px;align-items:center;justify-content:center;flex-wrap:wrap;margin:12px auto 8px;padding:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;max-width:900px}
+.pdf-editor-toolbar button{font-size:12px;padding:8px 11px}
+.pdf-editor-toolbar .pdf-tool.active{background:var(--accent2);border-color:var(--accent);color:var(--accent);font-weight:700}
+.pdf-editor-note{display:block;flex-basis:100%;text-align:center;color:var(--muted);font-size:10px;line-height:1.4}
+@media(max-width:600px){.pdf-editor-toolbar{gap:5px;padding:8px}.pdf-editor-toolbar button{font-size:11px;padding:8px}.pdf-editor-note{font-size:9px}}
