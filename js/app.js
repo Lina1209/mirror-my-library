@@ -368,8 +368,8 @@ async function renderPDFPage() {
   }).promise;
   const wrapper = document.createElement("div");
   wrapper.className = "pdf-page-wrap";
-  wrapper.style.width = \`${Math.floor(viewport.width)}px\`;
-  wrapper.style.height = \`${Math.floor(viewport.height)}px\`;
+  wrapper.style.width = Math.floor(viewport.width) + "px";
+  wrapper.style.height = Math.floor(viewport.height) + "px";
   wrapper.append(canvas);
   const overlay = document.createElement("canvas");
   overlay.className = "pdf-annotation-layer";
