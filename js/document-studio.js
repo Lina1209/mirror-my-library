@@ -151,8 +151,11 @@ function insertStudioTable(){
   const table=document.createElement("table");table.className="studio-data-table";
   for(let r=0;r<3;r++){const row=table.insertRow();for(let c=0;c<3;c++){const cell=document.createElement(r===0?"th":"td");cell.textContent=r===0?"Заголовок":"";row.append(cell);}}
   const range=savedEditorRange;
-  if(range&&editor.contains(range.commonAncestorContainer)){range.deleteContents();range.insertNode(table);}
-  else editor.append(table);
+  if(range&&editor.contains(range.commonAncestorContainer)){
+    const node=range.startContainer.nodeType===Node.TEXT_NODE?range.startContainer.parentElement:range.startContainer;
+    const block=node.closest?.("p,div,table,h1,h2,h3,h4,ul,ol,blockquote,pre");
+    if(block&&block!==editor)block.after(table);else editor.append(table);
+  }else editor.append(table);
   const first=table.rows[0]?.cells[0];
   if(first){const nextRange=document.createRange();nextRange.selectNodeContents(first);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(nextRange);savedEditorRange=nextRange.cloneRange();}
   say("Добавлена таблица 3×3. Щёлкните по ячейке, чтобы редактировать её.");
@@ -184,14 +187,17 @@ function htmlRuns(node,TextRun){
       return;
     }
     if(n.nodeType!==Node.ELEMENT_NODE)return;
-    const css=n.style||{},px=parseFloat(css.fontSize||"");
-    const color=(css.color||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
+    const css=n.style||{},fontSizeMap={"1":16,"2":18,"3":20,"4":24,"5":32,"6":48,"7":72};
+    const px=parseFloat(css.fontSize||"");
+    const fontColor=n.getAttribute?.("color");
+    const color=(css.color||fontColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
     const bg=(css.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
+    const htmlSize=n.getAttribute?.("size");
     const next={bold:style.bold||["B","STRONG"].includes(n.tagName)||css.fontWeight==="bold"||Number(css.fontWeight)>=600,
       italics:style.italics||["I","EM"].includes(n.tagName)||css.fontStyle==="italic",
       underline:style.underline||n.tagName==="U"||(css.textDecoration||"").includes("underline"),
-      font:css.fontFamily?.split(",")[0]?.replace(/["']/g,"")||style.font,
-      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):style.size,
+      font:(css.fontFamily||n.getAttribute?.("face"))?.split(",")[0]?.replace(/["']/g,"")||style.font,
+      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),
       color:color||style.color,highlight:bg||style.highlight};
     n.childNodes.forEach(child=>walk(child,next));
     if(n.tagName==="BR")runs.push(new TextRun({text:"\\n"}));
