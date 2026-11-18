@@ -128,15 +128,73 @@ function printPDF(){
   w.document.open();w.document.write(documentHTML());w.document.close();w.onload=()=>{w.focus();w.print();};
 }
 function exportText(){download(new Blob([editor.innerText||""],{type:"text/plain;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-текст.txt");}
-function insertCommand(command,value=null){editor.focus();document.execCommand(command,false,value);}
+let savedEditorRange=null;
+document.addEventListener("selectionchange",()=>{
+  const selection=window.getSelection();
+  if(selection?.rangeCount&&editor.contains(selection.anchorNode))savedEditorRange=selection.getRangeAt(0).cloneRange();
+});
+function restoreEditorSelection(){
+  editor.focus();
+  if(!savedEditorRange)return;
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(savedEditorRange);
+}
+function insertCommand(command,value=null){restoreEditorSelection();document.execCommand(command,false,value);}
+function currentTableCell(){
+  restoreEditorSelection();
+  const selection=window.getSelection();let node=selection?.anchorNode;
+  if(node?.nodeType===Node.TEXT_NODE)node=node.parentElement;
+  const cell=node?.closest?.("td,th");
+  return cell&&editor.contains(cell)?cell:null;
+}
+function insertStudioTable(){
+  restoreEditorSelection();
+  const table=document.createElement("table");table.className="studio-data-table";
+  for(let r=0;r<3;r++){const row=table.insertRow();for(let c=0;c<3;c++){const cell=document.createElement(r===0?"th":"td");cell.textContent=r===0?"Заголовок":"";row.append(cell);}}
+  const range=savedEditorRange;
+  if(range&&editor.contains(range.commonAncestorContainer)){range.deleteContents();range.insertNode(table);}
+  else editor.append(table);
+  const first=table.rows[0]?.cells[0];
+  if(first){const nextRange=document.createRange();nextRange.selectNodeContents(first);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(nextRange);savedEditorRange=nextRange.cloneRange();}
+  say("Добавлена таблица 3×3. Щёлкните по ячейке, чтобы редактировать её.");
+}
+function modifyStudioTable(action){
+  const cell=currentTableCell();if(!cell){say("Поставьте курсор внутрь ячейки таблицы.");return;}
+  const row=cell.parentElement,table=cell.closest("table"),index=cell.cellIndex;
+  if(action==="addRow"){
+    const newRow=table.insertRow(row.rowIndex+1);
+    [...row.cells].forEach(()=>newRow.insertCell());
+  }else if(action==="addColumn"){
+    [...table.rows].forEach(r=>r.insertCell(index+1));
+  }else if(action==="deleteRow"){
+    if(table.rows.length<=1){table.remove();say("Таблица удалена: в ней не осталось строк.");return;}
+    table.deleteRow(row.rowIndex);
+  }else if(action==="deleteColumn"){
+    if(row.cells.length<=1){table.remove();say("Таблица удалена: в ней не осталось столбцов.");return;}
+    [...table.rows].forEach(r=>r.cells[index]?.remove());
+  }
+  say("Структура таблицы обновлена. Изменения войдут в экспорт.");
+}
 function htmlRuns(node,TextRun){
   const runs=[];
   function walk(n,style={}){
-    if(n.nodeType===Node.TEXT_NODE){if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,underline:style.underline?{}:undefined}));return;}
+    if(n.nodeType===Node.TEXT_NODE){
+      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,
+        underline:style.underline?{}:undefined,font:style.font||undefined,size:style.size||undefined,
+        color:style.color||undefined,highlight:style.highlight||undefined}));
+      return;
+    }
     if(n.nodeType!==Node.ELEMENT_NODE)return;
-    const next={bold:style.bold||["B","STRONG"].includes(n.tagName),italics:style.italics||["I","EM"].includes(n.tagName),underline:style.underline||n.tagName==="U"};
+    const css=n.style||{},px=parseFloat(css.fontSize||"");
+    const color=(css.color||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
+    const bg=(css.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
+    const next={bold:style.bold||["B","STRONG"].includes(n.tagName)||css.fontWeight==="bold"||Number(css.fontWeight)>=600,
+      italics:style.italics||["I","EM"].includes(n.tagName)||css.fontStyle==="italic",
+      underline:style.underline||n.tagName==="U"||(css.textDecoration||"").includes("underline"),
+      font:css.fontFamily?.split(",")[0]?.replace(/["']/g,"")||style.font,
+      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):style.size,
+      color:color||style.color,highlight:bg||style.highlight};
     n.childNodes.forEach(child=>walk(child,next));
-    if(n.tagName==="BR")runs.push(new TextRun({text:"\n"}));
+    if(n.tagName==="BR")runs.push(new TextRun({text:"\\n"}));
   }
   walk(node);return runs.length?runs:[new TextRun({text:""})];
 }
@@ -144,19 +202,31 @@ async function exportDOCX(){
   if(!editor.innerText.trim()){say("Сначала загрузите или введите документ.");return;}
   say("Подготовка DOCX…");
   const d=await import("https://cdn.jsdelivr.net/npm/docx@8.5.0/+esm");
-  const {Document,Packer,Paragraph,TextRun,HeadingLevel,Table,TableRow,TableCell,WidthType}=d;
+  const {Document,Packer,Paragraph,TextRun,HeadingLevel,Table,TableRow,TableCell,WidthType,AlignmentType,ShadingType,BorderStyle}=d;
   const children=[];
+  const borders={top:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},bottom:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},left:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"},right:{style:BorderStyle.SINGLE,size:4,color:"A0A0A0"}};
+  function blockAlignment(node){
+    const align=node.style?.textAlign;
+    return align==="center"?AlignmentType.CENTER:align==="right"?AlignmentType.RIGHT:align==="justify"?AlignmentType.JUSTIFIED:AlignmentType.LEFT;
+  }
   function addBlock(node){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
     if(node.tagName==="TABLE"){
-      const rows=[...node.rows].map(row=>new TableRow({children:[...row.cells].map(cell=>new TableCell({children:[new Paragraph({children:htmlRuns(cell,TextRun)})]}))}));
-      if(rows.length)children.push(new Table({rows,width:{size:100,type:WidthType.PERCENTAGE}}));
+      const rows=[...node.rows].map(row=>new TableRow({children:[...row.cells].map(cell=>{
+        const bg=(cell.style.backgroundColor||"").match(/#([0-9a-f]{6})/i)?.[1]?.toUpperCase();
+        return new TableCell({children:[new Paragraph({children:htmlRuns(cell,TextRun),alignment:blockAlignment(cell)})],
+          borders,shading:bg?{fill:bg,type:ShadingType.CLEAR}:undefined,verticalAlign:"center"});
+      })}));
+      if(rows.length)children.push(new Table({rows,width:{size:100,type:WidthType.PERCENTAGE},borders}));
     }else if(["P","DIV","H1","H2","H3","H4","LI","BLOCKQUOTE","PRE"].includes(node.tagName)){
-      const opts={children:htmlRuns(node,TextRun)};
+      const opts={children:htmlRuns(node,TextRun),alignment:blockAlignment(node)};
       if(node.tagName==="H1")opts.heading=HeadingLevel.HEADING_1;
       if(node.tagName==="H2")opts.heading=HeadingLevel.HEADING_2;
       if(node.tagName==="H3"||node.tagName==="H4")opts.heading=HeadingLevel.HEADING_3;
       if(node.tagName==="LI")opts.bullet={indent:360};
+      if(node.tagName==="BLOCKQUOTE")opts.indent={left:360};
+      const marginBottom=parseFloat(node.style?.marginBottom||"");
+      if(Number.isFinite(marginBottom)&&marginBottom>0)opts.spacing={after:Math.min(1200,Math.round(marginBottom*15))};
       children.push(new Paragraph(opts));
     }else [...node.children].forEach(addBlock);
   }
@@ -165,7 +235,7 @@ async function exportDOCX(){
   const doc=new Document({sections:[{children}]});
   const blob=await Packer.toBlob(doc);
   download(blob,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.docx");
-  say("DOCX создан. Сохранены основные абзацы, заголовки, списки, жирный/курсив/подчёркивание и простые таблицы. Сложная вёрстка и специальные элементы могут отличаться от оригинала.");
+  say("DOCX создан. Перенесены абзацы, выравнивание, заголовки, списки, базовые выделения, шрифт/цвет текста и простые таблицы с границами и фоном ячеек. Сложная вёрстка и специальные элементы могут отличаться от оригинала.");
 }
 async function exportXLSX(){
   const table=editor.querySelector("table");if(!table){say("В редакторе нет таблицы для экспорта XLSX.");return;}
@@ -182,6 +252,22 @@ $("studioTXT").addEventListener("click",exportText);
 $("studioDOCX").addEventListener("click",()=>exportDOCX().catch(e=>{console.error(e);say("Не удалось создать DOCX: "+e.message);}));
 $("studioXLSX").addEventListener("click",()=>exportXLSX().catch(e=>{console.error(e);say("Не удалось создать XLSX: "+e.message);}));
 $("studioBold").addEventListener("click",()=>insertCommand("bold"));
+$("studioAlignLeft").addEventListener("click",()=>insertCommand("justifyLeft"));
+$("studioAlignCenter").addEventListener("click",()=>insertCommand("justifyCenter"));
+$("studioAlignRight").addEventListener("click",()=>insertCommand("justifyRight"));
+$("studioAlignJustify").addEventListener("click",()=>insertCommand("justifyFull"));
+$("studioBullet").addEventListener("click",()=>insertCommand("insertUnorderedList"));
+$("studioNumber").addEventListener("click",()=>insertCommand("insertOrderedList"));
+$("studioFont").addEventListener("change",e=>insertCommand("fontName",e.target.value));
+$("studioFontSize").addEventListener("change",e=>insertCommand("fontSize",e.target.value));
+$("studioTextColor").addEventListener("input",e=>insertCommand("foreColor",e.target.value));
+$("studioHighlight").addEventListener("input",e=>insertCommand("hiliteColor",e.target.value));
+$("studioInsertTable").addEventListener("click",insertStudioTable);
+$("studioAddRow").addEventListener("click",()=>modifyStudioTable("addRow"));
+$("studioAddColumn").addEventListener("click",()=>modifyStudioTable("addColumn"));
+$("studioDeleteRow").addEventListener("click",()=>modifyStudioTable("deleteRow"));
+$("studioDeleteColumn").addEventListener("click",()=>modifyStudioTable("deleteColumn"));
+
 $("studioItalic").addEventListener("click",()=>insertCommand("italic"));
 $("studioH2").addEventListener("click",()=>insertCommand("formatBlock","h2"));
 $("studioParagraph").addEventListener("click",()=>insertCommand("formatBlock","p"));
