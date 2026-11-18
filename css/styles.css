@@ -117,3 +117,8 @@ body.dark{color-scheme:dark}
 .studio-inline-setting input[type=color]{width:30px;height:28px;padding:1px;border:0;background:transparent}
 .studio-tools button{min-height:34px}
 @media(max-width:650px){.studio-inline-setting{font-size:11px}.studio-inline-setting select{max-width:105px}.studio-tools button{flex:0 0 auto}}
+
+/* Imported document images and manual page breaks */
+.studio-editor img{display:inline-block;max-width:100%;height:auto;object-fit:contain;vertical-align:middle}
+.studio-editor .studio-page-break{display:block;min-height:28px;margin:18px 0;padding:4px 8px;border-top:2px dashed var(--line);color:var(--muted);font-size:11px;text-align:center}
+.studio-editor [data-page-break="true"]::after{content:"Разрыв страницы";display:block}
