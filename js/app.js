@@ -6,7 +6,7 @@ const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: 18, currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfEditTool: "view", pdfUndo: {}
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfEditTool: "view", pdfUndo: {}
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -337,6 +337,7 @@ async function openEPUB(book, progress) {
 
 async function openPDF(book, progress) {
   state.pdfAnnotations = book.pdfAnnotations || {};
+  state.pdfImageObjects = book.pdfImageObjects || {};
   state.pdfUndo = {};
   state.pdfEditTool = "view";
   const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
@@ -377,10 +378,14 @@ async function renderPDFPage() {
   overlay.style.width = canvas.style.width; overlay.style.height = canvas.style.height;
   overlay.getContext("2d").setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   wrapper.append(overlay);
+  const objectLayer=document.createElement("div");
+  objectLayer.className="pdf-object-layer";objectLayer.id="pdfObjectLayer";
+  wrapper.append(objectLayer);
   $("readerContent").replaceChildren(wrapper);
   state.pdfOverlay = overlay;
   state.pdfPageCanvas = canvas;
   await restorePDFAnnotationLayer(overlay, state.pdfAnnotations[state.pdfPage]);
+  renderPDFImageObjects();
   attachPDFAnnotationEvents(overlay);
   ensurePDFEditorControls();
   updatePDFToolButtons();
@@ -566,18 +571,62 @@ async function replacePDFOCRLine(line){
 }
 async function insertPDFImage(file){
   if(!file||!file.type.startsWith("image/")||!state.pdfOverlay)return;
-  snapshotPDFAnnotation();
   try{
-    const url=URL.createObjectURL(file),image=new Image();
-    await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(new Error("Не удалось открыть изображение"));image.src=url;});
-    const canvas=state.pdfOverlay,ctx=canvas.getContext("2d");
-    const ratio=Math.min(window.devicePixelRatio||1,2),width=canvas.width/ratio,height=canvas.height/ratio;
-    const maxWidth=width*.48,maxHeight=height*.48,scale=Math.min(maxWidth/image.naturalWidth,maxHeight/image.naturalHeight,1);
-    const drawWidth=image.naturalWidth*scale,drawHeight=image.naturalHeight*scale;
-    ctx.drawImage(image,(width-drawWidth)/2,(height-drawHeight)/2,drawWidth,drawHeight);
-    URL.revokeObjectURL(url);
-    await persistPDFAnnotations();toast("Изображение добавлено по центру страницы. Его можно переместить только через отмену и повторную вставку.");
+    const dataUrl=await new Promise((resolve,reject)=>{
+      const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Не удалось прочитать файл"));reader.readAsDataURL(file);
+    });
+    const image=new Image();
+    await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(new Error("Не удалось открыть изображение"));image.src=dataUrl;});
+    const ratio=image.naturalWidth/image.naturalHeight;
+    let w=.42,h=w/ratio;if(h>.55){h=.55;w=h*ratio;}
+    const list=state.pdfImageObjects[state.pdfPage]||(state.pdfImageObjects[state.pdfPage]=[]);
+    list.push({id:makeId(),src:dataUrl,x:(1-w)/2,y:(1-h)/2,w,h});
+    state.activeBook.pdfImageObjects=state.pdfImageObjects;
+    await put("books",state.activeBook);renderPDFImageObjects();
+    toast("Изображение добавлено. Перетаскивайте его, а за угол — изменяйте размер.");
   }catch(error){toast("Не удалось вставить изображение: "+error.message);}
+}
+function renderPDFImageObjects(){
+  const layer=$("pdfObjectLayer");if(!layer)return;
+  layer.replaceChildren();
+  const objects=state.pdfImageObjects[state.pdfPage]||[];
+  objects.forEach(object=>{
+    const frame=document.createElement("div");frame.className="pdf-image-object";
+    frame.style.left=(object.x*100)+"%";frame.style.top=(object.y*100)+"%";
+    frame.style.width=(object.w*100)+"%";frame.style.height=(object.h*100)+"%";
+    const image=document.createElement("img");image.src=object.src;image.alt="Вставленное изображение";
+    const handle=document.createElement("span");handle.className="pdf-image-resize";handle.setAttribute("aria-label","Изменить размер");
+    frame.append(image,handle);layer.append(frame);
+    let mode="",start=null,origin=null;
+    const begin=(event,kind)=>{
+      event.preventDefault();event.stopPropagation();mode=kind;
+      const rect=layer.getBoundingClientRect();
+      start={x:event.clientX,y:event.clientY,width:rect.width,height:rect.height};
+      origin={...object};frame.setPointerCapture?.(event.pointerId);
+    };
+    frame.onpointerdown=event=>{if(event.target===handle)return;begin(event,"move");};
+    handle.onpointerdown=event=>begin(event,"resize");
+    frame.onpointermove=event=>{
+      if(!mode||!start)return;
+      const dx=(event.clientX-start.x)/start.width,dy=(event.clientY-start.y)/start.height;
+      if(mode==="move"){
+        object.x=Math.max(0,Math.min(1-object.w,origin.x+dx));
+        object.y=Math.max(0,Math.min(1-object.h,origin.y+dy));
+      }else{
+        object.w=Math.max(.06,Math.min(1-origin.x,origin.w+dx));
+        object.h=Math.max(.06,Math.min(1-origin.y,origin.h+dy));
+      }
+      frame.style.left=(object.x*100)+"%";frame.style.top=(object.y*100)+"%";
+      frame.style.width=(object.w*100)+"%";frame.style.height=(object.h*100)+"%";
+    };
+    const finish=async()=>{
+      if(!mode)return;mode="";start=null;origin=null;
+      state.activeBook.pdfImageObjects=state.pdfImageObjects;
+      try{await put("books",state.activeBook);toast("Положение и размер изображения сохранены.");}
+      catch(error){toast("Не удалось сохранить изображение: "+error.message);}
+    };
+    frame.onpointerup=finish;frame.onpointercancel=finish;frame.onlostpointercapture=finish;
+  });
 }
 async function undoPDFAnnotation(){
   const history=state.pdfUndo[state.pdfPage]||[];
@@ -598,9 +647,21 @@ async function exportEditedPDF(){
     const output=await PDFDocument.load(state.activeBook.data.slice(0));
     for(const [pageNumber,dataUrl] of Object.entries(state.pdfAnnotations)){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
-      const png=await (await fetch(dataUrl)).arrayBuffer();
-      const image=await output.embedPng(png),page=output.getPage(index),size=page.getSize();
-      page.drawImage(image,{x:0,y:0,width:size.width,height:size.height});
+      const sourceImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
+      const pageCanvas=document.createElement("canvas");
+      pageCanvas.width=sourceImage.width;pageCanvas.height=sourceImage.height;
+      const pageContext=pageCanvas.getContext("2d");pageContext.drawImage(sourceImage,0,0);
+      for(const object of (state.pdfImageObjects[pageNumber]||[])){
+        const objectImage=await createImageBitmap(await (await fetch(object.src)).blob());
+        pageContext.drawImage(objectImage,object.x*pageCanvas.width,object.y*pageCanvas.height,
+          object.w*pageCanvas.width,object.h*pageCanvas.height);
+        objectImage.close?.();
+      }
+      sourceImage.close?.();
+      const png=await new Promise(resolve=>pageCanvas.toBlob(resolve,"image/png"));
+      const embedded=await output.embedPng(await png.arrayBuffer()),page=output.getPage(index),size=page.getSize();
+      page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
+      pageCanvas.width=0;pageCanvas.height=0;
     }
     const bytes=await output.save();
     const data=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
@@ -608,7 +669,7 @@ async function exportEditedPDF(){
     const name=base+"-edited.pdf";
     const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",
       author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,
-      addedAt:Date.now(),favorite:false,pdfAnnotations:{}};
+      addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{}};
     await put("books",edited);
     const url=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
     const anchor=document.createElement("a");anchor.href=url;anchor.download=name;
