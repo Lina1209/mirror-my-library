@@ -24,7 +24,7 @@ export function extension(name) {
 
 export async function extractMetadata(file, ext) {
   const fallback = {
-    title: String(file.name || "Без названия").replace(/\.(fb2|epub|pdf|txt|html?|zip)$/i, ""),
+    title: String(file.name || "Без названия").replace(/\.(fb2|epub|pdf|txt|html?|zip|docx?|xlsx?|csv)$/i, ""),
     author: "Автор не указан"
   };
 

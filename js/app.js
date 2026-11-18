@@ -194,7 +194,7 @@ async function importFiles(fileList) {
   let added = 0;
   for (const file of fileList) {
     let ext = extension(file.name);
-    if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm"].includes(ext)) {
+    if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv"].includes(ext)) {
       toast(`Формат не поддерживается: ${file.name}`);
       continue;
     }
@@ -210,7 +210,7 @@ async function importFiles(fileList) {
         data = new Blob([await entry.async("uint8array")], { type: "application/xml" });
         ext = "fb2";
       }
-      if (ext === "epub") {
+      if (["epub", "docx", "xlsx", "xls"].includes(ext)) {
         await ensureScript(() => !!window.JSZip,
           "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "ZIP");
       }
@@ -363,11 +363,33 @@ async function renderPDFPage() {
     transform: pixelRatio === 1 ? null : [pixelRatio, 0, 0, pixelRatio, 0, 0]
   }).promise;
   $("readerContent").replaceChildren(canvas);
+  if(!$("pdfTextBtn")){const b=document.createElement("button");b.id="pdfTextBtn";b.className="secondary";b.textContent="Извлечь текст / OCR";b.onclick=extractPDFText;$("readerMeta").append(" ",b);}
   $("prevBtn").disabled = state.pdfPage <= 1;
   $("nextBtn").disabled = state.pdfPage >= state.pdf.numPages;
   setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);
   await saveProgress(state.activeBook.id, state.pdfPage / state.pdf.numPages * 100,
     { page: state.pdfPage });
+}
+
+async function loadGlobalScript(test,src,name){
+ if(test())return;
+ await new Promise((resolve,reject)=>{const el=document.createElement("script");el.src=src;el.onload=resolve;el.onerror=()=>reject(new Error("Не удалось загрузить модуль "+name+". Нужен интернет."));document.head.append(el);});
+ if(!test())throw new Error("Модуль "+name+" недоступен.");
+}
+async function openDOCX(book){
+ await loadGlobalScript(()=>!!window.mammoth,"https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js","DOCX");
+ const result=await window.mammoth.convertToHtml({arrayBuffer:book.data.slice(0)});$("readerContent").innerHTML=safeHTML(result.value);$("prevBtn").disabled=$("nextBtn").disabled=true;setReaderStatus("Документ Word");
+}
+async function openSpreadsheet(book){
+ await loadGlobalScript(()=>!!window.XLSX,"https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","Excel");
+ const wb=window.XLSX.read(book.data,{type:"array"}),root=document.createElement("div");
+ wb.SheetNames.forEach(name=>{const h=document.createElement("h3");h.textContent=name;root.append(h);const table=document.createElement("div");table.className="sheet-table";table.innerHTML=window.XLSX.utils.sheet_to_html(wb.Sheets[name]);root.append(table);});
+ $("readerContent").replaceChildren(root);$("prevBtn").disabled=$("nextBtn").disabled=true;setReaderStatus("Таблица · "+wb.SheetNames.length+" лист(ов)");
+}
+async function loadOCR(){await loadGlobalScript(()=>!!window.Tesseract,"https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js","OCR");return window.Tesseract;}
+async function extractPDFText(){
+ if(!state.pdf)return;
+ try{let T=null;const pages=[];for(let n=1;n<=state.pdf.numPages;n++){setReaderStatus("Обработка PDF "+n+" / "+state.pdf.numPages);const page=await state.pdf.getPage(n),tc=await page.getTextContent();let value=tc.items.map(x=>x.str).join(" ").trim();if(value.length<20){if(!T)T=await loadOCR();const vp=page.getViewport({scale:1.5}),c=document.createElement("canvas"),ctx=c.getContext("2d");c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);await page.render({canvasContext:ctx,viewport:vp}).promise;const result=await T.recognize(c,"rus+eng");value=result.data.text||"[Текст не распознан]";}pages.push("Страница "+n+"\n"+value);}const text=pages.join("\n\n");state.currentTextPages=splitText(text);state.textPage=0;state.pdf=null;renderTextPage();setReaderStatus("Текст PDF извлечён");const blob=new Blob([text],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pdf-text.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){console.error(e);toast("Ошибка OCR: "+e.message);}
 }
 
 async function openBook(bookId) {
@@ -392,7 +414,9 @@ async function openBook(bookId) {
     if (book.ext === "epub") await openEPUB(book, progress);
     else if (book.ext === "pdf") await openPDF(book, progress);
     else if (book.ext === "fb2") await openFB2(book, progress);
-    else if (book.ext === "txt") await openTXT(book, progress);
+    else if (book.ext === "txt" || book.ext === "csv") await openTXT(book, progress);
+    else if (book.ext === "docx") await openDOCX(book);
+    else if (["xlsx", "xls"].includes(book.ext)) await openSpreadsheet(book);
     else if (["html", "htm"].includes(book.ext)) await openHTML(book, progress);
     else throw new Error("Этот формат пока не поддерживается.");
   } catch (error) {
@@ -470,7 +494,7 @@ $("fileInput").onchange = event => {
 };
 $("searchInput").oninput = renderBooks;
 
-document.querySelectorAll(".nav-item").forEach(button => {
+document.querySelectorAll(".nav-item[data-filter]").forEach(button => {
   button.onclick = () => {
     document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
     button.classList.add("active");
@@ -489,7 +513,10 @@ const dropZone = $("dropZone");
   dropZone.classList.remove("dragging");
 }));
 dropZone.addEventListener("drop", event => importFiles([...event.dataTransfer.files]));
-$("themeBtn").onclick = () => document.body.classList.toggle("dark");
+$("themeBtn").onclick=()=>{document.body.classList.toggle("dark");localStorage.setItem("mirror-theme",document.body.classList.contains("dark")?"dark":"light");};
+if(localStorage.getItem("mirror-theme")==="dark")document.body.classList.add("dark");
+$("fullscreenBtn").onclick=async()=>{try{if(!document.fullscreenElement)await $("readerView").requestFullscreen();else await document.exitFullscreen();}catch(e){toast("Полноэкранный режим недоступен");}};
+let touchX=0,touchY=0;$("readerContent").addEventListener("touchstart",e=>{touchX=e.changedTouches[0].clientX;touchY=e.changedTouches[0].clientY;},{passive:true});$("readerContent").addEventListener("touchend",e=>{const dx=e.changedTouches[0].clientX-touchX,dy=e.changedTouches[0].clientY-touchY;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25){if(dx<0)$("nextBtn").click();else $("prevBtn").click();}},{passive:true});
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   window.addEventListener("load", () => {

@@ -1,4 +1,4 @@
-const CACHE = "mirror-library-v2";
+const CACHE = "mirror-library-v3";
 const CORE = [
   "./",
   "./index.html",
@@ -7,8 +7,6 @@ const CORE = [
   "./js/db.js",
   "./js/parsers.js",
   "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", event => {
