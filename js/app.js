@@ -6,7 +6,7 @@ const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: 18, currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -418,6 +418,10 @@ function ensurePDFEditorControls() {
   undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
   const save=document.createElement("button");
   save.type="button";save.className="primary";save.textContent="Сохранить PDF";save.onclick=exportEditedPDF;
+  const downloadLink=document.createElement("a");
+  downloadLink.id="pdfExportDownloadLink";downloadLink.className="secondary";
+  downloadLink.textContent="↓ Скачать готовый PDF";downloadLink.hidden=true;
+  downloadLink.setAttribute("aria-label","Скачать созданную копию PDF");
   const note=document.createElement("small");
   note.className="pdf-editor-note";
   const imageButton=document.createElement("button");
@@ -453,7 +457,7 @@ function ensurePDFEditorControls() {
   [["white","Белый"],["transparent","Прозрачный"]].forEach(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;background.append(option);});
   backgroundLabel.append(background);
   [fontSelect,objectColor,bold,italic,background].forEach(control=>control.addEventListener("change",applyPDFTextObjectStyle));
-  toolbar.append(imageButton,sizeLabel,colorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,ocrEdit,undo,save,note);
+  toolbar.append(imageButton,sizeLabel,colorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,ocrEdit,undo,save,downloadLink,note);
   $("readerMeta").append(toolbar,imageInput);
   const ocr=document.createElement("button");
   ocr.id="pdfTextBtn";ocr.className="secondary";ocr.textContent="Извлечь текст / OCR";
@@ -783,13 +787,14 @@ async function exportEditedPDF(){
           object.w*pageCanvas.width);
         pageContext.restore();
       }
-      sourceImage?.close?.();
       const png=await new Promise(resolve=>pageCanvas.toBlob(resolve,"image/png"));
+      if(!png)throw new Error("Не удалось подготовить изображение страницы PDF.");
       const embedded=await output.embedPng(await png.arrayBuffer()),page=output.getPage(index),size=page.getSize();
       page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
       pageCanvas.width=0;pageCanvas.height=0;
     }
     const bytes=await output.save();
+    if(!bytes||bytes.length<5||String.fromCharCode(...bytes.slice(0,5))!=="%PDF-")throw new Error("Редактор не сформировал корректный PDF-файл.");
     const data=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
     const base=state.activeBook.name.replace(/\.pdf$/i,"");
     const name=base+"-edited.pdf";
@@ -797,10 +802,11 @@ async function exportEditedPDF(){
       author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,
       addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{},pdfTextObjects:{}};
     await put("books",edited);
-    const url=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
-    const anchor=document.createElement("a");anchor.href=url;anchor.download=name;
-    document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
-    await refresh();toast("Новая PDF-копия сохранена и скачана. Оригинал сохранён отдельно.");
+    if(state.pdfExportUrl)URL.revokeObjectURL(state.pdfExportUrl);
+    state.pdfExportUrl=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
+    const downloadLink=$("pdfExportDownloadLink");
+    if(downloadLink){downloadLink.href=state.pdfExportUrl;downloadLink.download=name;downloadLink.hidden=false;downloadLink.click();}
+    await refresh();toast("Новая PDF-копия сохранена в библиотеке. Если загрузка не началась, нажмите «Скачать готовый PDF». Оригинал не изменён.");
   }catch(error){console.error("PDF export:",error);toast("Не удалось сохранить PDF: "+(error.message||"ошибка экспорта"));}
 }
 
@@ -921,6 +927,7 @@ async function extractPDFText() {
 }
 
 async function openBook(bookId) {
+  if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
   const book = await getOne("books", bookId);
   if (!book) return;
   state.activeBook = book;
@@ -984,6 +991,7 @@ $("nextBtn").onclick = async () => {
   }
 };
 $("backBtn").onclick = async () => {
+  if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
   state.rendition?.destroy?.();
   state.epub?.destroy?.();
   state.rendition = null;
