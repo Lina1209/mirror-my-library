@@ -6,7 +6,7 @@ const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: 18, currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -143,10 +143,18 @@ function showDetails(book) {
   open.textContent = "Открыть";
   open.onclick = () => { $("detailsDialog").close(); openBook(book.id); };
 
-  const download = document.createElement("button");
+  if (state.detailDownloadUrl) { URL.revokeObjectURL(state.detailDownloadUrl); state.detailDownloadUrl = null; }
+  const fileInfo = getBookDownloadInfo(book);
+  const download = document.createElement("a");
   download.className = "secondary";
-  download.textContent = "Скачать оригинал";
-  download.onclick = () => downloadBook(book);
+  download.textContent = "↓ Скачать оригинал";
+  download.href = URL.createObjectURL(new Blob([fileInfo.data], { type: fileInfo.type }));
+  download.download = fileInfo.name;
+  state.detailDownloadUrl = download.href;
+  download.setAttribute("aria-label", "Скачать исходный файл " + fileInfo.name);
+  const downloadHint = document.createElement("small");
+  downloadHint.className = "download-hint";
+  downloadHint.textContent = "Если загрузка не началась, нажмите «Скачать оригинал» ещё раз."; 
 
   const del = document.createElement("button");
   del.className = "secondary";
@@ -165,18 +173,49 @@ function showDetails(book) {
   };
 
   actions.append(open, download, del);
-  body.append(heading, info, actions);
+  body.append(heading, info, actions, downloadHint);
   $("detailsDialog").showModal();
+  setTimeout(() => {
+    if (state.detailDownloadUrl === download.href) {
+      URL.revokeObjectURL(download.href);
+      state.detailDownloadUrl = null;
+    }
+  }, 5 * 60 * 1000);
+}
+
+function getBookDownloadInfo(book) {
+  const name = String(book.downloadName || book.name || "document").replace(/[\\\\/:*?"<>|\\u0000-\\u001f]/g, "_");
+  const ext = extension(name);
+  const mime = {
+    "fb2": "application/xml", "fb2.zip": "application/zip", "epub": "application/epub+zip",
+    "pdf": "application/pdf", "txt": "text/plain;charset=utf-8", "html": "text/html;charset=utf-8",
+    "htm": "text/html;charset=utf-8", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "xls": "application/vnd.ms-excel", "csv": "text/csv;charset=utf-8"
+  };
+  return { data: book.downloadData || book.data, name, type: book.downloadType || book.type || mime[ext] || "application/octet-stream" };
 }
 
 function downloadBook(book) {
-  const blob = new Blob([book.data], { type: book.type || "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = book.name;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  try {
+    const file = getBookDownloadInfo(book);
+    if (!file.data) throw new Error("Содержимое файла не найдено в библиотеке.");
+    const blob = new Blob([file.data], { type: file.type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.name;
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    // На мобильных браузерах загрузка может стартовать не сразу.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    toast("Файл подготовлен к скачиванию. Если загрузка не началась, откройте карточку и нажмите ссылку ещё раз.");
+  } catch (error) {
+    console.error("Download book:", error);
+    toast("Не удалось скачать файл: " + (error.message || "ошибка загрузки"));
+  }
 }
 
 async function ensureScript(test, src, label) {
@@ -201,6 +240,7 @@ async function importFiles(fileList) {
     }
     try {
       let data = file;
+      const originalArchive = ext === "fb2.zip" ? await file.arrayBuffer() : null;
       if (ext === "fb2.zip") {
         await ensureScript(() => !!window.JSZip,
           "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "ZIP");
@@ -219,7 +259,9 @@ async function importFiles(fileList) {
       await put("books", {
         id: makeId(), name: file.name, title: metadata.title,
         author: metadata.author, ext, type: file.type,
-        data: await data.arrayBuffer(), addedAt: Date.now(), favorite: false
+        data: await data.arrayBuffer(),
+        ...(originalArchive ? { downloadData: originalArchive, downloadType: file.type || "application/zip" } : {}),
+        addedAt: Date.now(), favorite: false
       });
       added++;
     } catch (error) {
@@ -1032,7 +1074,8 @@ async function shareSelectedText() {
 }
 async function shareCurrentBook() {
   const book=state.activeBook; if(!book) return;
-  const file=new File([book.data],book.name,{type:book.type || "application/octet-stream"});
+  const source=getBookDownloadInfo(book);
+  const file=new File([source.data],source.name,{type:source.type});
   try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else { downloadBook(book); toast("Файл скачан. Теперь его можно прикрепить к сообщению"); } }
   catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
 }
