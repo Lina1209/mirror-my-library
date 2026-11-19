@@ -184,7 +184,8 @@ function showDetails(book) {
 }
 
 function getBookDownloadInfo(book) {
-  const name = String(book.downloadName || book.name || "document").replace(/[\\\\/:*?"<>|\\u0000-\\u001f]/g, "_");
+  const unsafe = new Set(["/", "\\", ":", "*", "?", '"' , "<", ">", "|"]);
+  const name = Array.from(String(book.downloadName || book.name || "document"), ch => unsafe.has(ch) || ch.charCodeAt(0) < 32 ? "_" : ch).join("");
   const ext = extension(name);
   const mime = {
     "fb2": "application/xml", "fb2.zip": "application/zip", "epub": "application/epub+zip",
