@@ -5,7 +5,7 @@ const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
   epub: null, rendition: null, pdf: null, pdfPage: 1,
-  fontSize: 18, currentTextPages: [], textPage: 0,
+  fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
   pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
 };
 const filters = {
@@ -1046,11 +1046,13 @@ $("backBtn").onclick = async () => {
 };
 $("fontUp").onclick = () => {
   state.fontSize = Math.min(30, state.fontSize + 1);
+  localStorage.setItem("mirror-font-size", String(state.fontSize));
   $("readerContent").style.fontSize = `${state.fontSize}px`;
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
 $("fontDown").onclick = () => {
   state.fontSize = Math.max(13, state.fontSize - 1);
+  localStorage.setItem("mirror-font-size", String(state.fontSize));
   $("readerContent").style.fontSize = `${state.fontSize}px`;
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
@@ -1076,7 +1078,7 @@ async function shareCurrentBook() {
   const book=state.activeBook; if(!book) return;
   const source=getBookDownloadInfo(book);
   const file=new File([source.data],source.name,{type:source.type});
-  try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else { downloadBook(book); toast("Файл скачан. Теперь его можно прикрепить к сообщению"); } }
+  try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else downloadBook(book); }
   catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
 }
 $("copySelectionBtn").onclick=copySelectedText;
@@ -1205,17 +1207,24 @@ const ttsVoiceSelect = $("ttsVoice");
 const ttsPlayButton = $("ttsPlayBtn");
 const ttsPauseButton = $("ttsPauseBtn");
 const ttsStopButton = $("ttsStopBtn");
+const ttsRateSelect = $("ttsRate");
+if (ttsRateSelect) {
+  const savedRate = localStorage.getItem("mirror-tts-rate");
+  if (savedRate && [...ttsRateSelect.options].some(option => option.value === savedRate)) ttsRateSelect.value = savedRate;
+  ttsRateSelect.addEventListener("change", () => localStorage.setItem("mirror-tts-rate", ttsRateSelect.value));
+}
+ttsVoiceSelect?.addEventListener("change", () => localStorage.setItem("mirror-tts-voice", ttsVoiceSelect.value));
 
 function loadTTSVoices() {
   if (!("speechSynthesis" in window) || !ttsVoiceSelect) return;
   tts.voices = window.speechSynthesis.getVoices();
-  const previous = ttsVoiceSelect.value;
+  const previous = localStorage.getItem("mirror-tts-voice") || ttsVoiceSelect.value;
   ttsVoiceSelect.replaceChildren(new Option("Автоматический голос", ""));
-  tts.voices.forEach((voice, index) => {
-    const option = new Option(`${voice.name} — ${voice.lang}`, String(index));
+  tts.voices.forEach(voice => {
+    const option = new Option(`${voice.name} — ${voice.lang}`, voice.voiceURI);
     ttsVoiceSelect.add(option);
   });
-  if (previous && tts.voices[Number(previous)]) ttsVoiceSelect.value = previous;
+  if (previous && tts.voices.some(voice => voice.voiceURI === previous)) ttsVoiceSelect.value = previous;
 }
 if ("speechSynthesis" in window) {
   loadTTSVoices();
@@ -1279,8 +1288,9 @@ function speakNextChunk(token) {
   const text = tts.queue.shift();
   const utterance = new SpeechSynthesisUtterance(text);
   const selectedVoice = ttsVoiceSelect?.value;
-  if (selectedVoice !== "" && tts.voices[Number(selectedVoice)]) {
-    utterance.voice = tts.voices[Number(selectedVoice)];
+  const voice = tts.voices.find(item => item.voiceURI === selectedVoice);
+  if (selectedVoice && voice) {
+    utterance.voice = voice;
     utterance.lang = utterance.voice.lang;
   } else {
     utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
