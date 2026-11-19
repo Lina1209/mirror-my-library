@@ -7,6 +7,9 @@ const status = $("studioStatus");
 const progress = $("studioProgress");
 const fileInput = $("studioFile");
 const languages = $("studioLanguage");
+const savedOCRLanguage = localStorage.getItem("mirror-studio-language");
+if (savedOCRLanguage && [...languages.options].some(option => option.value === savedOCRLanguage)) languages.value = savedOCRLanguage;
+languages.addEventListener("change", () => localStorage.setItem("mirror-studio-language", languages.value));
 
 
 // Page navigation for the fixed document preview window.
