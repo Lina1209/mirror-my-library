@@ -386,8 +386,21 @@ async function saveToLibrary(){
   download(new Blob([html],{type:"text/html;charset=utf-8"}),name);
 }
 function printPDF(){
-  const w=window.open("","_blank");if(!w){say("Разрешите всплывающее окно для печати в PDF.");return;}
-  w.document.open();w.document.write(documentHTML());w.document.close();w.onload=()=>{w.focus();w.print();};
+  const w=window.open("about:blank","_blank");
+  if(!w){say("Браузер заблокировал окно печати. Разрешите всплывающие окна для ©Mirror и повторите попытку.");return;}
+  const html=documentHTML();let started=false;
+  const runPrint=async()=>{
+    if(started)return;started=true;
+    try{
+      const images=[...w.document.images];
+      await Promise.all(images.map(image=>image.decode?image.decode().catch(()=>{}):new Promise(resolve=>{if(image.complete)resolve();else{image.onload=resolve;image.onerror=resolve;}})));
+      if(w.document.fonts?.ready)await w.document.fonts.ready;
+      w.focus();setTimeout(()=>{try{w.print();}catch(error){say("Не удалось открыть печать: "+error.message);}},250);
+    }catch(error){say("Не удалось подготовить документ к печати: "+error.message);}
+  };
+  w.addEventListener("load",runPrint,{once:true});
+  w.document.open();w.document.write(html);w.document.close();
+  setTimeout(()=>{if(!started)runPrint();},1200);
 }
 function exportText(){download(new Blob([editor.innerText||""],{type:"text/plain;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-текст.txt");}
 let savedEditorRange=null;
