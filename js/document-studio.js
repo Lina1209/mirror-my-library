@@ -750,8 +750,18 @@ async function exportDOCX(){
         const rowHeight=parseFloat(row.style.height||row.style.minHeight||""),storedRowHeight=Number(row.dataset.docxHeight)||0;
         const rowOptions={children:[...row.cells].map(cell=>{
           const bg=cssColor(cell.style.backgroundColor);
+          const cellBlocks=[...cell.children].filter(child=>["P","DIV","PRE"].includes(child.tagName));
+          const cellParagraphs=cellBlocks.length?cellBlocks.map(block=>{
+            const paragraphOptions={children:htmlRuns(block,TextRun,ImageRun),alignment:blockAlignment(block)};
+            const before=parseFloat(block.style?.marginTop||""),after=parseFloat(block.style?.marginBottom||"");
+            const spacing={};
+            if(Number.isFinite(before)&&before>0)spacing.before=Math.min(1200,Math.round(before*15));
+            if(Number.isFinite(after)&&after>0)spacing.after=Math.min(1200,Math.round(after*15));
+            if(Object.keys(spacing).length)paragraphOptions.spacing=spacing;
+            return new Paragraph(paragraphOptions);
+          }):[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})];
           const cellOptions={
-            children:[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})],
+            children:cellParagraphs,
             borders:cellBorders(cell,node.dataset.docxTable==="true"),margins:cellMargins(cell),
             verticalAlign:cell.style.verticalAlign==="middle"?"center":(cell.style.verticalAlign||"top")
           };
