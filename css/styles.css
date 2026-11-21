@@ -811,3 +811,15 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .reader-progress-hint{font-size:10px;color:var(--muted);text-align:center;margin:0 0 2px}
 .reader-fullscreen .reader-progress-panel{position:sticky;bottom:54px;z-index:5}
 @media(max-width:600px){.reader-progress-panel{padding:8px 12px 3px}.reader-progress-range{height:28px}.reader-progress-hint{font-size:9px}}
+
+
+/* Text inside the reader must remain selectable on Android and desktop. */
+.reader-content,
+.reader-content :where(p,div,span,section,article,blockquote,li,td,th,pre,h1,h2,h3,h4,h5,h6,a){
+  -webkit-user-select:text;
+  user-select:text;
+}
+.reader-content button,
+.reader-content input,
+.reader-content select,
+.reader-content textarea{ -webkit-user-select:auto; user-select:auto; }
