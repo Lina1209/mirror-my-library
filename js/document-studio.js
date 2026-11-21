@@ -71,6 +71,41 @@ async function openStudioPreview(file){
       workbook.SheetNames.forEach((name,index)=>{const b=document.createElement("button");b.type="button";b.className="secondary";b.textContent=name;b.onclick=()=>showSheet(name);tabs.append(b);if(index===0)showSheet(name);});
       previewSurface.replaceChildren(tabs,sheetArea);previewSay(file.name+" · "+workbook.SheetNames.length+" лист(ов)");return;
     }
+    if(["pptx","odt","odp","zip"].includes(ext)){
+      await loadScript(()=>!!window.JSZip,"https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js","ZIP/Office preview");
+      const archive=await window.JSZip.loadAsync(file),listing=document.createElement("div");
+      if(ext==="zip"){
+        const files=Object.values(archive.files).filter(entry=>!entry.dir);
+        const list=document.createElement("div");list.className="studio-archive-list";
+        files.forEach(entry=>{
+          const row=document.createElement("div"),name=document.createElement("span"),button=document.createElement("button");
+          row.className="studio-archive-item";name.textContent=entry.name;button.type="button";button.className="secondary";button.textContent="Скачать";
+          button.onclick=async()=>{const blob=await entry.async("blob"),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=entry.name.split("/").pop()||"file";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);};
+          row.append(name,button);list.append(row);
+        });
+        previewSurface.replaceChildren(list);previewSay("ZIP-архив · "+files.length+" файлов. Оригинальный архив не изменяется.");return;
+      }
+      const textParts=[];
+      if(ext==="pptx"){
+        const slides=Object.keys(archive.files).filter(name=>/^ppt\/slides\/slide\d+\.xml$/i.test(name)).sort((a,b)=>Number(a.match(/slide(\d+)/i)[1])-Number(b.match(/slide(\d+)/i)[1]));
+        for(const name of slides){
+          const xml=await archive.file(name).async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
+          const heading=document.createElement("h3");heading.textContent="Слайд "+name.match(/slide(\d+)/i)[1];
+          const body=document.createElement("div");body.className="studio-preview-slide-text";
+          const paragraphs=[...doc.getElementsByTagNameNS("*","p")].map(p=>[...p.getElementsByTagNameNS("*","t")].map(t=>t.textContent).join("")).filter(Boolean);
+          body.textContent=paragraphs.join("\n");
+          listing.append(heading,body);textParts.push(body.textContent);
+        }
+        previewSurface.replaceChildren(listing);previewSay(file.name+" · текстовый предпросмотр "+slides.length+" слайдов (не отображает исходный дизайн)");return;
+      }
+      const contentFile=archive.file("content.xml");
+      if(!contentFile)throw new Error("В архиве не найден content.xml");
+      const xml=await contentFile.async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
+      if(doc.querySelector("parsererror"))throw new Error("XML внутри документа повреждён");
+      const paragraphs=[...doc.getElementsByTagNameNS("*","p"),...doc.getElementsByTagNameNS("*","h")];
+      paragraphs.forEach(p=>{const line=document.createElement(p.localName==="h"?"h3":"p");line.textContent=p.textContent||"";listing.append(line);});
+      previewSurface.replaceChildren(listing);previewSay(file.name+" · текстовый просмотр ODF; оригинальное форматирование не полностью воспроизводится");return;
+    }
     if(ext==="rtf"){
       const raw=await file.text(),plain=raw.replace(/\\'[0-9a-f]{2}/gi,"").replace(/\\[a-z]+-?\d* ?/gi,"").replace(/[{}]/g,"").replace(/\\\\/g,"\\");
       const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=plain;previewSurface.replaceChildren(pre);previewSay(file.name+" · упрощённый просмотр RTF");return;
