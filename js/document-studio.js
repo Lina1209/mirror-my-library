@@ -304,6 +304,9 @@ function sanitizeImportedHTML(markup){
       else if(key==="data-docx-width-type"&&["pct","dxa"].includes(value))node.setAttribute(key,value);
       else if(key==="data-docx-height-rule"&&["exact","atLeast","auto"].includes(value))node.setAttribute(key,value);
       else if(key==="data-sheet-name"&&value.length<=100)node.setAttribute(key,value);
+      else if(key==="data-xlsx-type"&&["n","s","str","b","d","e"].includes(value))node.setAttribute(key,value);
+      else if(["data-xlsx-value","data-xlsx-formula","data-xlsx-display"].includes(key)&&value.length<=2000)node.setAttribute(key,value);
+      else if(key==="data-xlsx-format"&&value.length<=120)node.setAttribute(key,value);
       else if((["data-docx-width","data-docx-height"].includes(key)||key.startsWith("data-page-"))&&/^\d+(?:\.\d+)?$/.test(value))node.setAttribute(key,value);
     });
   });
