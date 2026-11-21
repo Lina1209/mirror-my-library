@@ -1406,8 +1406,40 @@ async function shareCurrentBook() {
   try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else downloadBook(book); }
   catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
 }
+async function getCurrentPDFPageText() {
+  if (!state.pdf) return "";
+  const page = await state.pdf.getPage(state.pdfPage);
+  const content = await page.getTextContent();
+  return content.items.map(item => typeof item.str === "string" ? item.str + (item.hasEOL ? "\\n" : " ") : "")
+    .join("").replace(/[ \\t]+/g, " ").trim();
+}
+async function copyPDFPageText() {
+  if (!state.pdf) { toast("Эта команда доступна для PDF"); return; }
+  try {
+    const text = await getCurrentPDFPageText();
+    if (!text) { toast("На странице нет текстового слоя. Если это скан, сначала выполните OCR в Студии документов."); return; }
+    await navigator.clipboard.writeText(text);
+    toast("Текст страницы PDF скопирован");
+  } catch { toast("Не удалось скопировать текст страницы PDF"); }
+}
+async function sharePDFPageText() {
+  if (!state.pdf) { toast("Эта команда доступна для PDF"); return; }
+  try {
+    const text = await getCurrentPDFPageText();
+    if (!text) { toast("На странице нет текстового слоя. Для скана потребуется OCR."); return; }
+    if (navigator.share) await navigator.share({title: `${state.activeBook?.title || "PDF"} — страница ${state.pdfPage}`, text});
+    else {
+      await navigator.clipboard.writeText(text);
+      toast("Текст страницы скопирован — вставьте его в нужное приложение");
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") toast("Не удалось поделиться текстом страницы PDF");
+  }
+}
 $("copySelectionBtn").onclick=copySelectedText;
 $("shareSelectionBtn").onclick=shareSelectedText;
+$("copyPDFPageTextBtn").onclick=copyPDFPageText;
+$("sharePDFPageTextBtn").onclick=sharePDFPageText;
 $("shareBookBtn").onclick=shareCurrentBook;
 $("bookmarkBtn").onclick = async () => {
   if (!state.activeBook) return;
