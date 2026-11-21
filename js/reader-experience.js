@@ -224,6 +224,7 @@ $("readerAudioPlay").addEventListener("click",()=>{
 });
 $("readerAudioPrev").addEventListener("click",()=>$("prevBtn").click());
 $("readerAudioNext").addEventListener("click",()=>$("nextBtn").click());
+$("readerAudioStop").addEventListener("click",()=>{$("ttsStopBtn").click();setTimeout(updateAudioState,80);});
 $("readerAudioStatus").addEventListener("click",updateAudioState);
 $("readerRateRange").addEventListener("input",event=>{
   const value=Number(event.target.value);$("readerRateValue").textContent=value.toLocaleString("ru-RU");
