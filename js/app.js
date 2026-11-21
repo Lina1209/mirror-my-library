@@ -469,7 +469,8 @@ function ensurePDFEditorControls() {
   const imageInput=document.createElement("input");imageInput.id="pdfImageInput";imageInput.type="file";imageInput.accept="image/png,image/jpeg,image/webp";imageInput.hidden=true;imageInput.onchange=()=>insertPDFImage(imageInput.files?.[0]);
   const ocrEdit=document.createElement("button");ocrEdit.type="button";ocrEdit.className="secondary";ocrEdit.textContent="OCR строки";ocrEdit.onclick=recognizePDFPageLines;
   const undo=document.createElement("button");undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
-  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;\n  const forms=document.createElement("button");forms.type="button";forms.className="secondary";forms.textContent="Заполнить форму PDF";forms.onclick=openPDFFormEditor;
+  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;
+  const forms=document.createElement("button");forms.type="button";forms.className="secondary";forms.textContent="Заполнить форму PDF";forms.onclick=openPDFFormEditor;
   const sign=document.createElement("button");sign.type="button";sign.className="secondary";sign.textContent="✍ Подпись";sign.onclick=openPDFSignaturePad;
   const downloadLink=document.createElement("a");downloadLink.id="pdfExportDownloadLink";downloadLink.className="secondary";downloadLink.textContent="↓ Скачать PDF";downloadLink.hidden=true;
   const note=document.createElement("small");note.className="pdf-editor-note";note.textContent="Аннотации сохраняются отдельно; экспорт создаёт копию. Белая плашка только визуально закрывает фрагмент и не удаляет скрытые данные.";
