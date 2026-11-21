@@ -30,6 +30,7 @@
 }
 </script>
 <script type="module" src="js/app.js"></script>
+<script type="module" src="js/reader-experience.js"></script>
 <script type="module" src="js/translation.js"></script><script type="module" src="js/document-studio.js"></script>
 </head>
 <body>
@@ -98,10 +99,108 @@
     <div class="studio-exports studio-export-panel"><button id="studioSave" class="primary">💾 Сохранить редакцию в библиотеку</button><label for="studioExportFormat">Формат новой копии</label><select id="studioExportFormat"><option value="pdf">PDF — скачать отдельный файл</option><option value="docx">DOCX — Microsoft Word</option><option value="html">HTML — веб-документ</option><option value="txt">TXT — обычный текст</option><option value="xlsx">XLSX — таблица Excel</option></select><button id="studioExportSelected" class="secondary">Скачать в выбранном формате</button><button id="studioPrintPDF" class="secondary" type="button">🖨 Печать / сохранить через Android</button><p class="studio-export-hint">PDF скачивается отдельным файлом и добавляется в библиотеку как новая редакция. Печать доступна отдельно. Оригинал остаётся нетронутым.</p></div><div class="studio-revisions"><label for="studioSavedRevision">Сохранённые редакции</label><select id="studioSavedRevision"><option value="">Выберите сохранённую редакцию…</option></select><button id="studioLoadRevision" class="secondary" type="button">Открыть редакцию для продолжения</button></div></div>
   <p class="studio-caution">Оригинал не изменяется. DOCX экспортирует поддерживаемые абзацы, заголовки, списки, выделения и таблицы. XLSX экспортирует редактируемую таблицу. Для CSV доступен один лист; формулы и сложное оформление Excel могут отличаться. OCR не гарантирует точное восстановление исходной вёрстки; для PDF выберите «Создать PDF / Печать», затем «Сохранить как PDF».</p>
 </section>
-<section id="readerView" class="reader-view hidden"><div class="reader-toolbar"><div class="reader-actions-wrap"><button id="readerActionsBtn" class="reader-menu-btn" type="button" aria-label="Действия с книгой" aria-expanded="false" aria-controls="readerActionsMenu" title="Открыть книгу и действия">☰</button><div id="readerActionsMenu" class="reader-actions-menu" hidden><div class="reader-menu-heading">Открыть книгу</div><button type="button" data-reader-action="open-device">＋ Загрузить с устройства</button><button type="button" data-reader-action="open-library">▦ Выбрать из библиотеки</button><button type="button" data-reader-action="library">▤ Полная библиотека</button><div class="reader-menu-divider"></div><div class="reader-menu-subheading">Действия с текущей книгой</div><button type="button" data-reader-action="details">ℹ Информация о книге</button><button type="button" data-reader-action="download">↓ Скачать оригинал</button><button type="button" data-reader-action="share">↗ Поделиться файлом</button><button type="button" data-reader-action="bookmark">☆ Добавить закладку</button></div></div><button id="backBtn" class="secondary">← Библиотека</button><div class="reader-book-title" id="readerBookTitle">Документ</div><button id="readerFontDownQuick" class="icon-btn reader-font-quick" type="button" title="Уменьшить текст" aria-label="Уменьшить размер текста">A−</button><button id="readerFontUpQuick" class="icon-btn reader-font-quick" type="button" title="Увеличить текст" aria-label="Увеличить размер текста">A＋</button><button id="ttsPlayBtn" class="icon-btn reader-tts-visible" type="button" title="Читать книгу вслух">🔊 Читать</button><span id="ttsStatus" class="reader-tts-status" aria-live="polite"></span><button id="fullscreenBtn" class="icon-btn reader-fullscreen-visible" type="button" title="На весь экран" aria-label="На весь экран">⛶</button><div class="reader-menu-wrap"><button id="readerMenuBtn" class="reader-menu-btn" type="button" aria-label="Открыть настройки чтения" aria-expanded="false" aria-controls="readerSettingsMenu" title="Настройки чтения">☰</button><div id="readerSettingsMenu" class="reader-settings-menu" hidden><div class="reader-menu-heading">Настройки чтения</div><div class="reader-controls"><button id="copySelectionBtn" class="icon-btn" type="button" title="Копировать выделенный текст">Копировать выделенное</button><button id="shareSelectionBtn" class="icon-btn" type="button" title="Поделиться выделенным текстом">Поделиться выделенным</button><button id="copyPDFPageTextBtn" class="icon-btn" type="button" title="Копировать текст текущей страницы PDF">Копировать страницу PDF</button><button id="sharePDFPageTextBtn" class="icon-btn" type="button" title="Поделиться текстом текущей страницы PDF">Поделиться страницей PDF</button><button id="shareBookBtn" class="icon-btn" title="Поделиться файлом">↗ Файл</button><button id="fontDown" class="icon-btn" title="Уменьшить шрифт">A−</button><button id="fontUp" class="icon-btn" title="Увеличить шрифт">A＋</button><button id="bookmarkBtn" class="icon-btn" title="Закладка">☆</button><button id="bookModeBtn" class="icon-btn" type="button" aria-pressed="false" title="Включить книжный режим">📖 Книжный режим</button><button id="ttsPauseBtn" class="icon-btn" type="button" title="Пауза" disabled>Ⅱ</button><button id="ttsStopBtn" class="icon-btn" type="button" title="Остановить" disabled>■</button><label class="tts-setting">Голос <select id="ttsVoice" aria-label="Выбрать голос"><option value="">Автоматический</option></select></label><label class="tts-setting">Скорость <select id="ttsRate" aria-label="Скорость озвучивания"><option value="0.75">Медленно</option><option value="0.9" selected>Спокойно</option><option value="1">Обычно</option><option value="1.15">Быстрее</option><option value="1.3">Быстро</option></select></label></div></div></div></div>
-<div id="readerMeta" class="reader-meta"></div><div id="readerContent" class="reader-content" tabindex="0"><div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div></div>
-<div class="reader-progress-panel"><div class="reader-progress-top"><span id="readerProgressText">Прогресс чтения</span><span id="readerProgressPercent">0%</span></div><input id="readerProgressRange" class="reader-progress-range" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Перейти к месту в книге"><div class="reader-progress-hint">Передвиньте ползунок, чтобы перейти к нужному месту</div></div><div class="reader-footer"><button id="prevBtn" class="secondary">← Назад</button><span id="pageStatus">Готово к чтению</span><button id="nextBtn" class="secondary">Вперёд →</button></div></section>
-</section></main>
+<section id="readerView" class="reader-view hidden reader-fixed-mode">
+<div class="reader-toolbar" aria-label="Панель книги">
+  <div class="reader-actions-wrap">
+    <button id="readerActionsBtn" class="reader-menu-btn" type="button" aria-label="Открыть меню книги" aria-expanded="false" title="Меню книги">☰</button>
+    <div id="readerActionsMenu" class="reader-actions-menu" hidden>
+      <div class="reader-menu-heading">Открыть книгу</div>
+      <button type="button" data-reader-action="open-device">＋ Выбрать файл</button>
+      <button type="button" data-reader-action="open-library">▦ Библиотека</button>
+      <button type="button" data-reader-action="library">▤ Вернуться в библиотеку</button>
+      <div class="reader-menu-divider"></div><div class="reader-menu-subheading">Текущая книга</div>
+      <button type="button" data-reader-action="details">ℹ О книге</button>
+      <button type="button" data-reader-action="download">↓ Скачать оригинал</button>
+      <button type="button" data-reader-action="share">↗ Поделиться</button>
+      <button type="button" data-reader-action="bookmark">☆ Добавить закладку</button>
+    </div>
+  </div>
+  <button id="backBtn" class="secondary reader-back-legacy" type="button">← Библиотека</button>
+  <div class="reader-book-title" id="readerBookTitle">Книга</div>
+  <button id="readerThemeToggle" class="reader-top-action" type="button" aria-label="Сменить тему страницы" title="Светлая / тёмная тема">◐</button>
+  <button id="readerSearchBtn" class="reader-top-action" type="button" aria-label="Поиск по книге" title="Поиск по тексту">⌕</button>
+  <div class="reader-menu-wrap">
+    <button id="readerMenuBtn" class="reader-menu-btn" type="button" aria-label="Настройки читалки" aria-expanded="false" title="Настройки">⋯</button>
+    <div id="readerSettingsMenu" class="reader-settings-menu" hidden>
+      <div class="reader-menu-heading">Дополнительные действия</div>
+      <div class="reader-controls">
+        <button id="copySelectionBtn" class="icon-btn" type="button">Копировать выделенное</button>
+        <button id="shareSelectionBtn" class="icon-btn" type="button">Поделиться выделенным</button>
+        <button id="copyPDFPageTextBtn" class="icon-btn" type="button">Копировать страницу PDF</button>
+        <button id="sharePDFPageTextBtn" class="icon-btn" type="button">Поделиться страницей PDF</button>
+        <button id="shareBookBtn" class="icon-btn" type="button">↗ Файл</button>
+        <button id="fontDown" class="icon-btn" type="button">A−</button><button id="fontUp" class="icon-btn" type="button">A＋</button>
+        <button id="bookmarkBtn" class="icon-btn" type="button">☆ Закладка</button>
+        <button id="bookModeBtn" class="icon-btn" type="button" aria-pressed="false">📖 Книжный режим</button>
+        <button id="ttsPauseBtn" class="icon-btn" type="button" disabled>Ⅱ Пауза</button>
+        <button id="ttsStopBtn" class="icon-btn" type="button" disabled>■ Остановить</button>
+        <label class="tts-setting">Голос <select id="ttsVoice" aria-label="Выбрать голос"><option value="">Автоматический</option></select></label>
+        <label class="tts-setting">Скорость <select id="ttsRate" aria-label="Скорость озвучивания"><option value="0.75">Медленно</option><option value="0.9" selected>Спокойно</option><option value="1">Обычно</option><option value="1.15">Быстрее</option><option value="1.3">Быстро</option></select></label>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="readerMeta" class="reader-meta"></div>
+<div id="readerContent" class="reader-content" tabindex="0" aria-label="Текст книги">
+  <div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка ©Mirror</h2><p>Выберите книгу в библиотеке, чтобы начать чтение.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>
+</div>
+<div class="reader-progress-panel">
+  <div class="reader-progress-top"><span id="readerProgressText">Прогресс чтения</span><span id="readerProgressPercent">0%</span></div>
+  <input id="readerProgressRange" class="reader-progress-range" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Перейти к месту в книге">
+</div>
+<div class="reader-footer"><button id="prevBtn" class="secondary" type="button">← Назад</button><span id="pageStatus">Готово к чтению</span><button id="nextBtn" class="secondary" type="button">Вперёд →</button></div>
+<div id="readerAudioDock" class="reader-audio-dock" hidden>
+  <button id="readerAudioSettingsBtn" class="reader-audio-icon" type="button" aria-label="Настройки голоса" title="Настройки голоса">⚙</button>
+  <button id="readerAudioPrev" class="reader-audio-icon" type="button" aria-label="Предыдущая страница" title="Предыдущая страница">|◀</button>
+  <button id="readerAudioPlay" class="reader-audio-play" type="button" aria-label="Читать вслух">▶</button>
+  <button id="readerAudioNext" class="reader-audio-icon" type="button" aria-label="Следующая страница" title="Следующая страница">▶|</button>
+  <span id="readerAudioStatus" class="reader-audio-status">Готово к чтению</span>
+  <button id="readerAudioClose" class="reader-audio-icon" type="button" aria-label="Скрыть аудиоплеер" title="Скрыть панель">⌄</button>
+</div>
+<section id="readerAudioSettings" class="reader-sheet reader-audio-settings" hidden aria-label="Настройки голоса">
+  <div class="reader-sheet-head"><div><small>ЧТЕНИЕ ВСЛУХ</small><h2>Настройки голоса</h2></div><button id="readerAudioSettingsClose" class="reader-sheet-close" type="button" aria-label="Закрыть">×</button></div>
+  <label class="reader-setting-field">Язык и голос<select id="readerVoiceSelect"><option value="">Автоматический голос</option></select></label>
+  <label class="reader-setting-field">Темп <output id="readerRateValue">1,0</output><input id="readerRateRange" type="range" min="0.6" max="1.5" step="0.05" value="0.9"></label>
+  <label class="reader-setting-field">Высота голоса <output id="readerPitchValue">1,0</output><input id="readerPitchRange" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+  <p class="reader-setting-note">Доступные голоса зависят от синтезатора речи, установленного на устройстве. Дополнительные голоса можно установить в системных настройках Android.</p>
+  <button id="readerSystemTtsHelp" class="secondary" type="button">Как открыть системные настройки</button>
+</section>
+<div id="readerScrim" class="reader-scrim" hidden></div>
+<aside id="readerDrawer" class="reader-drawer" hidden aria-label="Меню книги">
+  <div class="reader-drawer-head"><div><small>©MIRROR READER</small><strong id="readerDrawerBookTitle">Моя книга</strong></div><button id="readerDrawerClose" type="button" aria-label="Закрыть меню">×</button></div>
+  <nav class="reader-drawer-nav">
+    <button type="button" data-reader-panel="info"><span>ⓘ</span><span>О книге</span><b>›</b></button>
+    <button type="button" data-reader-panel="bookmarks"><span>☆</span><span>Закладки</span><b>›</b></button>
+    <button type="button" data-reader-panel="speak"><span>♫</span><span>Читать вслух</span><b>›</b></button>
+    <button type="button" data-reader-panel="library"><span>▤</span><span>Библиотека</span><b>›</b></button>
+    <button type="button" data-reader-panel="network"><span>◎</span><span>Сетевая библиотека</span><b>›</b></button>
+    <button type="button" data-reader-panel="file"><span>＋</span><span>Выбор файла</span><b>›</b></button>
+  </nav>
+  <div class="reader-drawer-foot">Чтение без лишних панелей. Коснитесь страницы, чтобы вернуть управление.</div>
+</aside>
+<section id="readerSubpanel" class="reader-subpanel" hidden aria-label="Раздел читалки">
+  <header class="reader-subpanel-head"><button id="readerSubpanelBack" type="button" aria-label="Назад">‹</button><div><small id="readerSubpanelEyebrow">©MIRROR READER</small><h2 id="readerSubpanelTitle">Раздел</h2></div><button id="readerSubpanelClose" type="button" aria-label="Закрыть">×</button></header>
+  <div id="readerSubpanelBody" class="reader-subpanel-body"></div>
+</section>
+<section id="readerSettingsSheet" class="reader-sheet reader-settings-sheet" hidden aria-label="Настройки чтения">
+  <div class="reader-sheet-head"><div><small>©MIRROR READER</small><h2>Настройки</h2></div><button id="readerSettingsClose" class="reader-sheet-close" type="button" aria-label="Закрыть">×</button></div>
+  <div class="reader-settings-list">
+    <button type="button" data-setting-page="interface"><span>Интерфейс</span><b>›</b></button>
+    <button type="button" data-setting-page="text"><span>Текст и шрифты</span><b>›</b></button>
+    <button type="button" data-setting-page="layout"><span>Столбцы и отступы</span><b>›</b></button>
+    <button type="button" data-setting-page="colors"><span>Цвета и темы</span><b>›</b></button>
+    <button type="button" data-setting-page="speech"><span>Синтез речи и чтение вслух</span><b>›</b></button>
+    <button type="button" data-setting-page="progress"><span>Прогресс и полоса прокрутки</span><b>›</b></button>
+    <button type="button" data-setting-page="gestures"><span>Листание и жесты</span><b>›</b></button>
+    <button type="button" data-setting-page="translation"><span>Словарь и переводчик</span><b>›</b></button>
+    <button type="button" data-setting-page="about"><span>О программе</span><b>›</b></button>
+  </div>
+</section>
+<dialog id="readerSearchDialog" class="reader-search-dialog">
+  <form method="dialog"><button class="reader-sheet-close" aria-label="Закрыть">×</button></form>
+  <h2>Поиск по книге</h2><div class="reader-search-row"><input id="readerSearchInput" type="search" placeholder="Введите слово или фразу"><button id="readerSearchNext" class="primary" type="button">Найти</button></div><p id="readerSearchStatus" aria-live="polite">Поиск выполняется в открытом тексте.</p>
+</dialog>
+</section></section></main>
 
 <dialog id="readerLibraryDialog" class="reader-library-dialog"><div class="reader-library-head"><div><h2 id="readerLibraryTitle">Книжная полка</h2><p id="readerLibrarySubtitle">Ваша библиотека · обложка, название и автор</p></div><div class="reader-library-head-actions"><button id="readerLibraryUploadTop" class="secondary" type="button">＋ С устройства</button><button id="readerLibraryClose" class="modal-close" type="button" aria-label="Закрыть">×</button></div></div><div class="reader-library-tools"><input id="readerLibrarySearch" type="search" placeholder="Поиск по названию или автору" aria-label="Поиск книги"><div class="view-switch" role="group" aria-label="Вид списка книг"><button id="readerPickerCards" class="view-switch-btn active" type="button" aria-pressed="true">▦ Карточки</button><button id="readerPickerList" class="view-switch-btn" type="button" aria-pressed="false">☷ Список</button></div></div><div id="readerLibraryGrid" class="reader-library-grid"></div><div id="readerLibraryEmpty" class="empty-state hidden"><h3>Книг пока нет</h3><p>Загрузите файл с устройства или добавьте книгу в библиотеку.</p><button id="readerLibraryUpload" class="primary" type="button">＋ Загрузить файл</button></div></dialog><dialog id="detailsDialog" class="modal"><form method="dialog"><button class="modal-close" aria-label="Закрыть">×</button></form><div id="detailsBody"></div></dialog><div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./service-worker.js").catch(console.warn));</script>

@@ -1361,6 +1361,7 @@ async function openBook(bookId) {
   const book = await getOne("books", bookId);
   if (!book) return;
   state.activeBook = book;
+  $("readerView").dataset.bookId = book.id;
   state.epub = null;
   state.rendition = null;
   state.epubText = "";
@@ -1585,6 +1586,8 @@ $("bookmarkBtn").onclick = async () => {
     id: makeId(), bookId: state.activeBook.id,
     page: state.pdf ? state.pdfPage : state.textPage,
     cfi: state.rendition?.currentLocation()?.start?.cfi || "",
+    percent: Number($("readerProgressRange")?.value || 0) / 10,
+    label: $("pageStatus")?.textContent || "",
     createdAt: Date.now()
   };
   await put("bookmarks", mark);
@@ -1905,6 +1908,7 @@ function speakNextChunk(token) {
     utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
   }
   utterance.rate = Number($("ttsRate")?.value || 0.9);
+  utterance.pitch = Math.max(0.5, Math.min(2, Number(localStorage.getItem("mirror-tts-pitch") || 1)));
   utterance.onstart = () => { tts.active=true; updateTTSButtons(); };
   utterance.onend = () => {
     if (token === tts.token) { tts.active=false; speakNextChunk(token); }
