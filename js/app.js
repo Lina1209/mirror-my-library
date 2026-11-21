@@ -1268,6 +1268,8 @@ $("fontDown").onclick = () => {
   $("readerContent").style.setProperty("--fb2-font-size", `${state.fontSize}px`);
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
+$("readerFontUpQuick").onclick = () => $("fontUp").click();
+$("readerFontDownQuick").onclick = () => $("fontDown").click();
 function getSelectedReaderText() {
   const selection = window.getSelection?.();
   const selected = selection?.toString().trim() || "";
