@@ -444,7 +444,7 @@ async function renderPDFPage() {
 
 
 function ensurePDFNavigationControls(){
-  if($("pdfNavigationPanel"))return;
+  if($("pdfNavigationPanel")){$("pdfJumpPage").value=String(state.pdfPage);return;}
   const panel=document.createElement("section");panel.id="pdfNavigationPanel";panel.className="pdf-navigation-panel";
   const pageLabel=document.createElement("label");pageLabel.textContent="Перейти к странице ";
   const pageInput=document.createElement("input");pageInput.id="pdfJumpPage";pageInput.type="number";pageInput.min="1";pageInput.value=String(state.pdfPage);pageInput.inputMode="numeric";pageInput.setAttribute("aria-label","Номер страницы PDF");
