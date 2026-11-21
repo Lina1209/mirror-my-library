@@ -615,3 +615,7 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 
 .reader-image{display:block;max-width:100%;max-height:calc(100vh - 190px);height:auto;width:auto;object-fit:contain;margin:0 auto;background:#fff}
 .reader-content:has(.reader-image){display:flex;align-items:center;justify-content:center;overflow:auto}
+
+.studio-archive-list{width:100%;display:flex;flex-direction:column;gap:6px}
+.studio-archive-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.studio-preview-slide-text{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--line);padding:12px;border-radius:8px;margin-bottom:12px}
