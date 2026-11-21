@@ -779,3 +779,7 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
   .reader-content.fb2-content { padding-left: 12px; padding-right: 12px; }
   .reader-content.fb2-content img { max-height: 48vh !important; }
 }
+
+
+.reader-font-quick{padding:8px 9px;min-width:38px;white-space:nowrap}
+@media(max-width:600px){.reader-toolbar{flex-wrap:wrap}.reader-font-quick{padding:7px 8px;min-width:36px}.reader-book-title{min-width:90px}}
