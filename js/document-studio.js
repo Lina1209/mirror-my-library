@@ -343,9 +343,9 @@ function restoreDocxPageSettings(xmlText){
 }
 function readDocxPageSettings(){
   const marker=editor.querySelector(".studio-docx-page-settings");
-  const number=(key,fallback)=>{const value=Number(marker?.dataset[key]);return Number.isFinite(value)&&value>0?Math.round(value):fallback;};
+  const number=(key,fallback)=>{const raw=marker?.dataset[key];if(raw===undefined||raw==="")return fallback;const value=Number(raw);return Number.isFinite(value)&&value>=0?Math.round(value):fallback;};
   return {width:number("pageWidth",11906),height:number("pageHeight",16838),
-    top:number("pageTop",1134),right:number("pageRight",850),bottom:number("pageBottom",1134),left:number("pageLeft",850)};
+    top:number("pageTop",1134),right:number("pageRight",850),bottom:number("pageBottom",1134),left:number("pageLeft",850),header:number("pageHeader",567),footer:number("pageFooter",567)};
 }
 function restoreDocxTableGeometry(xmlText){
   const xml=new DOMParser().parseFromString(xmlText,"application/xml");
@@ -742,7 +742,7 @@ async function exportDOCX(){
   [...editor.children].forEach(addBlock);
   if(!children.length)children.push(new Paragraph({text:editor.innerText}));
   const page=readDocxPageSettings();
-  const doc=new Document({sections:[{properties:{page:{size:{width:page.width,height:page.height},margin:{top:page.top,right:page.right,bottom:page.bottom,left:page.left}}},children}]});
+  const doc=new Document({sections:[{properties:{page:{size:{width:page.width,height:page.height},margin:{top:page.top,right:page.right,bottom:page.bottom,left:page.left,header:page.header,footer:page.footer}}},children}]});
   const blob=await Packer.toBlob(doc);
   download(blob,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.docx");
   say("DOCX создан. Перенесены объединённые ячейки, размеры столбцов и строк, заливка, границы, отступы и вертикальное выравнивание таблиц, а также текст и встроенные изображения. Проверьте итоговый файл: сложные вложенные таблицы и нестандартные стили могут отличаться.");
