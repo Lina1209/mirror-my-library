@@ -461,27 +461,51 @@ async function importSpreadsheet(file){
   const workbook=window.XLSX.read(await file.arrayBuffer(),{type:"array"});
   if(!workbook.SheetNames.length)throw new Error("В файле не найдено листов.");
   const fragment=document.createDocumentFragment();
-  let imported=0,empty=0;
-  workbook.SheetNames.forEach((name,index)=>{
-    const sheet=workbook.Sheets[name];
-    const rows=window.XLSX.utils.sheet_to_json(sheet,{header:1,raw:false,defval:"",blankrows:false});
-    if(!rows.length){empty++;return;}
+  let imported=0,empty=0,merged=0;
+  workbook.SheetNames.forEach(name=>{
+    const sheet=workbook.Sheets[name],ref=sheet["!ref"];
+    if(!ref){empty++;return;}
+    const range=window.XLSX.utils.decode_range(ref);
     const heading=document.createElement("h3");heading.textContent=name;fragment.append(heading);
     const table=document.createElement("table");table.className="studio-data-table";
     table.dataset.sheetName=name;table.setAttribute("aria-label",name);
-    rows.forEach((row,rowIndex)=>{
-      const tr=document.createElement("tr");
-      row.forEach(value=>{
-        const cell=document.createElement(rowIndex===0?"th":"td");
-        cell.textContent=String(value??"");tr.append(cell);
-      });
-      table.append(tr);
+    const colgroup=document.createElement("colgroup");
+    for(let col=range.s.c;col<=range.e.c;col++){
+      const colNode=document.createElement("col"),meta=sheet["!cols"]?.[col];
+      const px=Number(meta?.wpx)||((Number(meta?.wch)||Number(meta?.width)||0)*7);
+      if(px>0)colNode.style.width=Math.max(12,Math.min(1200,Math.round(px)))+"px";
+      colgroup.append(colNode);
+    }
+    if(colgroup.children.length)table.append(colgroup);
+    const merges=sheet["!merges"]||[],covered=new Set(),starts=new Map();
+    merges.forEach(m=>{
+      if(m.s.r<range.s.r||m.s.c<range.s.c||m.e.r>range.e.r||m.e.c>range.e.c)return;
+      starts.set(m.s.r+":"+m.s.c,m);
+      for(let r=m.s.r;r<=m.e.r;r++)for(let col=m.s.c;col<=m.e.c;col++)if(r!==m.s.r||col!==m.s.c)covered.add(r+":"+col);
+      merged++;
     });
+    for(let r=range.s.r;r<=range.e.r;r++){
+      const tr=document.createElement("tr"),rowMeta=sheet["!rows"]?.[r];
+      const rowPx=Number(rowMeta?.hpx)||((Number(rowMeta?.hpt)||0)*96/72);
+      if(rowPx>0)tr.style.height=Math.max(8,Math.min(1000,Math.round(rowPx)) )+"px";
+      for(let col=range.s.c;col<=range.e.c;col++){
+        if(covered.has(r+":"+col))continue;
+        const cellData=sheet[window.XLSX.utils.encode_cell({r,c:col})];
+        const cell=document.createElement(r===range.s.r?"th":"td");
+        let value="";
+        if(cellData){try{value=cellData.w??window.XLSX.utils.format_cell(cellData);}catch{value=cellData.v??"";}}
+        cell.textContent=String(value??"");
+        const merge=starts.get(r+":"+col);
+        if(merge){if(merge.e.r>merge.s.r)cell.rowSpan=merge.e.r-merge.s.r+1;if(merge.e.c>merge.s.c)cell.colSpan=merge.e.c-merge.s.c+1;}
+        tr.append(cell);
+      }
+      table.append(tr);
+    }
     fragment.append(table);imported++;
   });
   if(!imported)throw new Error("Все листы книги пусты.");
   editor.replaceChildren(fragment);state.format="sheet";
-  say("Загружено листов: "+imported+". Можно редактировать каждую таблицу. При экспорте они снова станут отдельными листами Excel."+(empty?" Пустых листов пропущено: "+empty+".":""));
+  say("Загружено листов: "+imported+". Сохранены объединения ячеек: "+merged+". Ширины столбцов и высоты строк восстановлены там, где они указаны. Формулы и сложное оформление могут отличаться; исходный файл остаётся доступен отдельно."+(empty?" Пустых листов пропущено: "+empty+".":""));
   setProgress(100);
 }
 async function recognize(){
@@ -779,6 +803,16 @@ async function exportXLSX(){
   const workbook=window.XLSX.utils.book_new();
   tables.forEach((table,index)=>{
     const sheet=window.XLSX.utils.table_to_sheet(table,{raw:true});
+    const cols=[...table.querySelectorAll(":scope > colgroup > col")];
+    if(cols.length)sheet["!cols"]=cols.map(col=>{
+      const px=parseFloat(col.style.width||"");
+      return Number.isFinite(px)&&px>0?{wpx:Math.max(12,Math.min(1200,Math.round(px)))}:{};
+    });
+    const rows=[...table.rows];
+    if(rows.some(row=>parseFloat(row.style.height||"")>0))sheet["!rows"]=rows.map(row=>{
+      const px=parseFloat(row.style.height||"");
+      return Number.isFinite(px)&&px>0?{hpx:Math.max(8,Math.min(1000,Math.round(px)))}:{};
+    });
     let name=table.dataset.sheetName||table.getAttribute("aria-label")||"Таблица "+(index+1);
     name=String(name).replace(/[\\\\/?*:[\\]]/g," ").trim().slice(0,31)||"Лист "+(index+1);
     let unique=name,suffix=2;
@@ -788,8 +822,8 @@ async function exportXLSX(){
     }
     window.XLSX.utils.book_append_sheet(workbook,sheet,unique);
   });
-  window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
-  say("XLSX создан: "+tables.length+" таблиц сохранено на отдельных листах. Проверьте формулы и оформление в Excel.");
+  window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
+  say("XLSX создан: "+tables.length+" листов. Сохранены данные, объединения ячеек и доступные размеры столбцов/строк. Формулы, стили и сложные настройки проверьте в Excel.");
 }
 async function exportSelectedFormat(){
   const format=$("studioExportFormat").value;
