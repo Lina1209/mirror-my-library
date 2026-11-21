@@ -469,10 +469,10 @@ function ensurePDFEditorControls() {
   const imageInput=document.createElement("input");imageInput.id="pdfImageInput";imageInput.type="file";imageInput.accept="image/png,image/jpeg,image/webp";imageInput.hidden=true;imageInput.onchange=()=>insertPDFImage(imageInput.files?.[0]);
   const ocrEdit=document.createElement("button");ocrEdit.type="button";ocrEdit.className="secondary";ocrEdit.textContent="OCR строки";ocrEdit.onclick=recognizePDFPageLines;
   const undo=document.createElement("button");undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
-  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;\n  const forms=document.createElement("button");forms.type="button";forms.className="secondary";forms.textContent="Заполнить форму PDF";forms.onclick=openPDFFormEditor;
+  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;\n  const forms=document.createElement("button");forms.type="button";forms.className="secondary";forms.textContent="Заполнить форму PDF";forms.onclick=openPDFFormEditor;\n  const sign=document.createElement("button");sign.type="button";sign.className="secondary";sign.textContent="✍ Подпись";sign.onclick=openPDFSignaturePad;
   const downloadLink=document.createElement("a");downloadLink.id="pdfExportDownloadLink";downloadLink.className="secondary";downloadLink.textContent="↓ Скачать PDF";downloadLink.hidden=true;
   const note=document.createElement("small");note.className="pdf-editor-note";note.textContent="Аннотации сохраняются отдельно; экспорт создаёт копию. Белая плашка только визуально закрывает фрагмент и не удаляет скрытые данные.";
-  toolbar.append(colorLabel,widthLabel,sizeLabel,textColorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,imageButton,forms,ocrEdit,undo,save,downloadLink,note);
+  toolbar.append(colorLabel,widthLabel,sizeLabel,textColorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,imageButton,forms,sign,ocrEdit,undo,save,downloadLink,note);
   $("readerMeta").append(toolbar,imageInput);
   const extract=document.createElement("button");extract.id="pdfTextBtn";extract.className="secondary";extract.textContent="Извлечь текст / OCR";extract.onclick=extractPDFText;$("readerMeta").append(extract);
 }
@@ -1441,5 +1441,40 @@ async function openPDFFormEditor(){
     const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Скрыть";close.onclick=()=>panel.classList.add("hidden");
     actions.append(apply,close);panel.append(actions);panel.classList.remove("hidden");
   }catch(error){console.error("PDF form editor:",error);toast("Не удалось открыть PDF-форму: "+error.message);}
+}
+
+function openPDFSignaturePad(){
+  if(!state.pdfOverlay||!state.activeBook){toast("Сначала откройте PDF.");return;}
+  let panel=$("pdfSignaturePanel");
+  if(!panel){
+    panel=document.createElement("section");panel.id="pdfSignaturePanel";panel.className="pdf-signature-panel";
+    const heading=document.createElement("h3");heading.textContent="Рукописная подпись";
+    const instruction=document.createElement("p");instruction.textContent="Нарисуйте подпись пальцем или мышью. Затем добавьте её на текущую страницу — подпись можно будет перемещать и менять размер.";
+    const canvas=document.createElement("canvas");canvas.id="pdfSignatureCanvas";canvas.width=900;canvas.height=280;
+    canvas.className="pdf-signature-canvas";
+    const actions=document.createElement("div");actions.className="pdf-form-actions";
+    const clear=document.createElement("button");clear.type="button";clear.className="secondary";clear.textContent="Очистить";clear.onclick=()=>canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height);
+    const place=document.createElement("button");place.type="button";place.className="primary";place.textContent="Вставить на страницу";
+    place.onclick=async()=>{
+      const signature=canvas.toDataURL("image/png");
+      const blank=document.createElement("canvas");blank.width=canvas.width;blank.height=canvas.height;
+      if(canvas.toDataURL()===blank.toDataURL()){toast("Сначала нарисуйте подпись.");return;}
+      const image=new Image();image.src=signature;
+      await new Promise(resolve=>image.onload=resolve);
+      const ratio=image.width/image.height;let w=.38,h=w/ratio;if(h>.18){h=.18;w=h*ratio;}
+      const list=state.pdfImageObjects[state.pdfPage]||(state.pdfImageObjects[state.pdfPage]=[]);
+      list.push({id:makeId(),src:signature,x:.31,y:.72,w,h});
+      state.activeBook.pdfImageObjects=state.pdfImageObjects;await put("books",state.activeBook);
+      renderPDFImageObjects();panel.classList.add("hidden");toast("Подпись вставлена. Переместите её в нужное место и измените размер.");
+    };
+    const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Закрыть";close.onclick=()=>panel.classList.add("hidden");
+    actions.append(clear,place,close);panel.append(heading,instruction,canvas,actions);$("readerMeta").append(panel);
+    let drawing=false,last=null;
+    const point=e=>{const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*canvas.width/r.width,y:(e.clientY-r.top)*canvas.height/r.height};};
+    canvas.onpointerdown=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture(e.pointerId);};
+    canvas.onpointermove=e=>{if(!drawing)return;const p=point(e),ctx=canvas.getContext("2d");ctx.strokeStyle="#171717";ctx.lineWidth=6;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;};
+    const finish=()=>{drawing=false;last=null;};canvas.onpointerup=finish;canvas.onpointercancel=finish;
+  }
+  panel.classList.remove("hidden");
 }
 
