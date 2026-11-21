@@ -22,6 +22,33 @@ export function extension(name) {
   return lower.split(".").pop() || "";
 }
 
+async function epubCoverData(zip, opf, opfPath) {
+  const manifest = [...opf.getElementsByTagNameNS("*", "item")];
+  const coverMeta = [...opf.getElementsByTagNameNS("*", "meta")]
+    .find(node => node.getAttribute("name")?.toLowerCase() === "cover")?.getAttribute("content");
+  const item = manifest.find(node =>
+    /cover-image/i.test(node.getAttribute("properties") || "") ||
+    (coverMeta && node.getAttribute("id") === coverMeta)
+  );
+  if (!item) return "";
+  const href = item.getAttribute("href") || "";
+  const base = opfPath.includes("/") ? opfPath.slice(0, opfPath.lastIndexOf("/") + 1) : "";
+  const path = (base + href).split("/").reduce((parts, part) => {
+    if (!part || part === ".") return parts;
+    if (part === "..") parts.pop(); else parts.push(part);
+    return parts;
+  }, []).join("/");
+  const file = zip.file(path);
+  if (!file) return "";
+  const bytes = await file.async("uint8array");
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  const mime = item.getAttribute("media-type") || (/\.png$/i.test(path) ? "image/png" : /\.gif$/i.test(path) ? "image/gif" : /\.webp$/i.test(path) ? "image/webp" : "image/jpeg");
+  return "data:" + mime + ";base64," + btoa(binary);
+}
+
 export async function extractMetadata(file, ext) {
   const fallback = {
     title: String(file.name || "Без названия").replace(/\.(fb2|epub|pdf|txt|html?|zip|docx?|xlsx?|csv)$/i, ""),
@@ -33,9 +60,19 @@ export async function extractMetadata(file, ext) {
       const xml = xmlParser(await file.text());
       const author = ["first-name", "middle-name", "last-name"]
         .map(name => textOf(xml, name)).filter(Boolean).join(" ");
+      const coverRef = byLocalName(byLocalName(xml, "coverpage") || xml, "image");
+      const coverId = (coverRef?.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+        || coverRef?.getAttribute("href") || "").replace(/^#/, "");
+      const binary = [...xml.getElementsByTagNameNS("*", "binary")]
+        .find(node => node.getAttribute("id") === coverId);
+      const mime = String(binary?.getAttribute("content-type") || "image/jpeg").toLowerCase();
+      const encoded = String(binary?.textContent || "").replace(/\s+/g, "");
+      const coverData = binary && /^image\/(png|jpeg|gif|webp)$/.test(mime) && /^[a-z0-9+/=]+$/i.test(encoded)
+        ? "data:" + mime + ";base64," + encoded : "";
       return {
         title: textOf(xml, "book-title") || fallback.title,
-        author: author || fallback.author
+        author: author || fallback.author,
+        ...(coverData ? { coverData } : {})
       };
     }
 
@@ -48,19 +85,20 @@ export async function extractMetadata(file, ext) {
         const opfFile = opfPath && zip.file(opfPath);
         if (opfFile) {
           const opf = xmlParser(await opfFile.async("string"));
+          const coverData = await epubCoverData(zip, opf, opfPath);
           return {
             title: textOf(opf, "title") || fallback.title,
-            author: textOf(opf, "creator") || fallback.author
+            author: textOf(opf, "creator") || fallback.author,
+            ...(coverData ? { coverData } : {})
           };
         }
       }
     }
   } catch (error) {
-    console.warn("Не удалось прочитать метаданные:", error);
+    console.warn("Не удалось прочитать метаданные или обложку:", error);
   }
   return fallback;
 }
-
 export async function readFB2(file) {
   const xml = xmlParser(await file.text());
   const body = byLocalName(xml, "body");
@@ -98,6 +136,16 @@ export function fb2ToHTML(raw) {
   const body = byLocalName(xml, "body");
   if (!body) throw new Error("В FB2 отсутствует основной раздел body.");
 
+  const binaries = new Map();
+  [...xml.getElementsByTagNameNS("*", "binary")].forEach(binary => {
+    const id = binary.getAttribute("id");
+    const mime = String(binary.getAttribute("content-type") || "").toLowerCase();
+    const base64 = String(binary.textContent || "").replace(/\s+/g, "");
+    if (id && /^image\/(png|jpeg|gif|webp)$/.test(mime) && /^[a-z0-9+/=]+$/i.test(base64)) {
+      binaries.set(id, { mime, base64 });
+    }
+  });
+
   const allowed = new Set([
     "p", "title", "subtitle", "section", "strong", "emphasis",
     "strikethrough", "sub", "sup", "code", "poem", "stanza",
@@ -113,9 +161,20 @@ export function fb2ToHTML(raw) {
     if (tag === "binary") return document.createDocumentFragment();
 
     if (tag === "image") {
+      const reference = node.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+        || node.getAttribute("href") || "";
+      const binary = binaries.get(reference.replace(/^#/, ""));
+      if (binary) {
+        const image = document.createElement("img");
+        image.className = "fb2-image";
+        image.loading = "lazy";
+        image.alt = node.getAttribute("alt") || "Иллюстрация из FB2";
+        image.src = "data:" + binary.mime + ";base64," + binary.base64;
+        return image;
+      }
       const placeholder = document.createElement("span");
       placeholder.className = "fb2-image-placeholder";
-      placeholder.textContent = "[Иллюстрация из FB2]";
+      placeholder.textContent = "[Иллюстрация не найдена в файле FB2]";
       return placeholder;
     }
 

@@ -1,7 +1,7 @@
 import { put, getAll } from "./db.js";
 
 const $ = id => document.getElementById(id);
-const state = { sourceName:"", sourceType:"", busy:false, format:"text" };
+const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null };
 const editor = $("studioEditor");
 const status = $("studioStatus");
 const progress = $("studioProgress");
@@ -41,7 +41,8 @@ async function previewRenderPDF(){
 async function openStudioPreview(file){
   if(!file)return;
   studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
-  previewDownload.disabled=false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
+  previewDownload.disabled=false;
+  if (!state.sourceBookId) $("studioSaveSourceToLibrary").disabled = false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
   const ext=extOf(file),type=file.type||"";
   try{
     if(ext==="pdf"||type==="application/pdf"){await previewLoadPDF(file);return;}
@@ -116,33 +117,72 @@ async function openStudioPreview(file){
 }
 
 // Accept a book already stored in the local library and open it in the separate editor workspace.
-window.openMirrorBookInStudio = async function(file) {
+window.openMirrorBookInStudio = async function(file, bookId = null) {
   if (!(file instanceof File)) throw new TypeError("Не удалось получить файл из библиотеки.");
-  const assignFile = input => {
-    if (!input) return;
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    input.files = transfer.files;
-  };
-  $("openStudioBtn")?.click();
-  assignFile(fileInput);
-  assignFile($("studioPreviewFile"));
+  const previewInput = $("studioPreviewFile");
+  if (previewInput) {
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      previewInput.files = transfer.files;
+    } catch (error) {
+      console.warn("Не удалось заполнить поле предпросмотра; файл всё равно будет открыт напрямую:", error);
+    }
+  }
   state.sourceName = file.name;
   state.sourceType = file.type || "";
-  if (fileInput) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  state.sourceBookId = bookId;
+  $("studioSaveSourceToLibrary").disabled = Boolean(bookId);
+  $("studioSaveSourceToLibrary").textContent = bookId ? "✓ Уже в библиотеке" : "＋ В библиотеку";
+  $("openStudioBtn")?.click();
   await openStudioPreview(file);
   previewDownload.disabled = false;
-  previewSay(file.name + " · файл из библиотеки. Оригинал не изменяется; OCR и редактирование запускаются отдельно.");
+  previewSay(file.name + " · файл из библиотеки. Оригинал сохранён в библиотеке; повторный импорт не выполняется.");
   $("studioPreviewMeta")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
 };
 
 $("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
-$("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
-$("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+$("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file){state.sourceBookId=null;state.sourceName=file.name;state.sourceType=file.type||"";$("studioSaveSourceToLibrary").disabled=false;$("studioSaveSourceToLibrary").textContent="＋ В библиотеку";openStudioPreview(file);}});
+$("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file){if(event.isTrusted){state.sourceBookId=null;state.sourceName=file.name;state.sourceType=file.type||"";$("studioSaveSourceToLibrary").disabled=false;$("studioSaveSourceToLibrary").textContent="＋ В библиотеку";}openStudioPreview(file);}});
 previewDownload?.addEventListener("click",previewDownloadOriginal);
+async function saveStudioSourceToLibrary() {
+  const file = studioPreview.file;
+  if (!file) { say("Сначала откройте документ для просмотра."); return; }
+  if (state.sourceBookId) { say("Этот оригинал уже находится в библиотеке."); return; }
+  if (typeof window.addMirrorFileToLibrary !== "function") {
+    say("Библиотека ещё загружается. Повторите попытку через мгновение.");
+    return;
+  }
+  try {
+    const savedId = await window.addMirrorFileToLibrary(file);
+    if (!savedId) {
+      say("Не удалось добавить файл. Проверьте, поддерживается ли его формат.");
+      return;
+    }
+    state.sourceBookId = savedId;
+    $("studioSaveSourceToLibrary").disabled = true;
+    $("studioSaveSourceToLibrary").textContent = "✓ Сохранено в библиотеке";
+    say("Оригинал добавлен в библиотеку вместе с доступными метаданными и обложкой. Исходный файл не изменён.");
+  } catch (error) {
+    say("Не удалось сохранить файл в библиотеку: " + error.message);
+  }
+}
+$("studioSaveSourceToLibrary")?.addEventListener("click",saveStudioSourceToLibrary);
 $("studioPreviewPrev")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page>1){studioPreview.page--;previewRenderPDF();}});
 $("studioPreviewNext")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page<studioPreview.pdf.numPages){studioPreview.page++;previewRenderPDF();}});
 previewZoom?.addEventListener("change",()=>{studioPreview.zoom=previewZoom.value;if(studioPreview.pdf)previewRenderPDF();else{const img=previewSurface.querySelector("img");if(img)img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%";}});
+function adjustStudioPreviewZoom(direction){
+  if(!previewZoom)return;
+  const steps=[0.75,1,1.25,1.5,2];
+  const current=studioPreview.zoom==="fit"?1:Number(studioPreview.zoom)||1;
+  let index=steps.findIndex(value=>value>=current-0.001);
+  if(index<0)index=steps.length-1;
+  index=Math.max(0,Math.min(steps.length-1,index+direction));
+  previewZoom.value=String(steps[index]);
+  previewZoom.dispatchEvent(new Event("change"));
+}
+$("studioPreviewZoomOut")?.addEventListener("click",()=>adjustStudioPreviewZoom(-1));
+$("studioPreviewZoomIn")?.addEventListener("click",()=>adjustStudioPreviewZoom(1));
 $("studioPreviewFullscreen")?.addEventListener("click",async()=>{
   const box=$("studioPreviewSurface").closest(".studio-preview-card");
   try{if(document.fullscreenElement===box)await document.exitFullscreen();else if(box.requestFullscreen)await box.requestFullscreen();else box.classList.toggle("studio-preview-expanded");}
@@ -222,10 +262,9 @@ async function recognizePDF(file,worker){
   pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
   for(let n=1;n<=pdf.numPages;n++){
-    say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем исходный вид и извлекаем текст…");
+    say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем страницу и восстанавливаем текстовые области…");
     const page=await pdf.getPage(n);
     const textContent=await page.getTextContent();
-    // Восстанавливаем строки по вертикальным координатам PDF, а не склеиваем всю страницу в одну строку.
     const textItems=textContent.items.filter(item=>typeof item.str==="string"&&item.str.trim());
     const lines=[];
     textItems.forEach(item=>{
@@ -237,7 +276,6 @@ async function recognizePDF(file,worker){
     lines.sort((x,y)=>y.y-x.y);
     let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\s+/g," ").trim()).filter(Boolean).join("\n").trim();
 
-    // Встраиваем изображение исходной страницы: иллюстрации, таблицы и расположение остаются видимыми в редакции.
     const base=page.getViewport({scale:1});
     const previewScale=Math.min(1.45,1800/Math.max(base.width,base.height));
     const previewViewport=page.getViewport({scale:previewScale});
@@ -245,14 +283,10 @@ async function recognizePDF(file,worker){
     canvas.width=Math.ceil(previewViewport.width);canvas.height=Math.ceil(previewViewport.height);
     const ctx=canvas.getContext("2d",{willReadFrequently:true});
     await page.render({canvasContext:ctx,viewport:previewViewport}).promise;
-    const pageImage=document.createElement("img");
-    pageImage.className="studio-source-page-image";
-    pageImage.alt="Оригинальный вид страницы "+n+" из PDF";
-    pageImage.src=canvas.toDataURL("image/jpeg",0.86);
-    canvas.width=canvas.height=0;
 
+    let ocrLines=[];
     if(extracted.length<25){
-      say("Страница "+n+" из "+pdf.numPages+": распознаём текст по изображению…");
+      say("Страница "+n+" из "+pdf.numPages+": распознаём текст и координаты строк…");
       const ocrCanvas=document.createElement("canvas");
       const ocrScale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
       const ocrViewport=page.getViewport({scale:ocrScale});
@@ -260,36 +294,95 @@ async function recognizePDF(file,worker){
       await page.render({canvasContext:ocrCanvas.getContext("2d",{willReadFrequently:true}),viewport:ocrViewport}).promise;
       const recognized=await worker.recognize(ocrCanvas);
       extracted=recognized.data.text||"";
+      ocrLines=(recognized.data.lines||[]).filter(line=>String(line.text||"").trim()&&line.bbox&&
+        [line.bbox.x0,line.bbox.y0,line.bbox.x1,line.bbox.y1].every(Number.isFinite));
       ocrCanvas.width=ocrCanvas.height=0;
     }
 
     const pageBlock=document.createElement("div");
     pageBlock.className="studio-source-page";
     const heading=document.createElement("h2");heading.textContent="Страница "+n;
-    const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
-    const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
-    const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
-    textBlock.textContent=extracted||"[Текст не распознан]";
-    pageBlock.append(heading,imageCaption,pageImage,textCaption,textBlock);
-    editor.append(pageBlock);
+
+    if(ocrLines.length){
+      // Первая реконструкция: закрываем распознанные строки на копии фона и размещаем редактируемый текст поверх по координатам OCR.
+      const layoutScale=Math.min(1,700/previewViewport.width);
+      const pageWidth=Math.round(previewViewport.width*layoutScale);
+      const pageHeight=Math.round(previewViewport.height*layoutScale);
+      const sx=previewViewport.width/Math.max(1,ocrViewport.width)*layoutScale;
+      const sy=previewViewport.height/Math.max(1,ocrViewport.height)*layoutScale;
+      ctx.fillStyle="#fff";
+      ocrLines.forEach(line=>{
+        const b=line.bbox;
+        const x=Math.max(0,b.x0*sx),y=Math.max(0,b.y0*sy);
+        const w=Math.max(1,(b.x1-b.x0)*sx),h=Math.max(1,(b.y1-b.y0)*sy);
+        const pad=Math.max(1,h*.08);
+        ctx.fillRect(Math.max(0,x-pad),Math.max(0,y-pad),Math.min(pageWidth/ layoutScale-x+pad,w+pad*2),h+pad*2);
+      });
+      const pageImage=document.createElement("img");
+      pageImage.className="studio-source-page-image";
+      pageImage.alt="Фон страницы "+n+" с очищенными областями текста";
+      pageImage.src=canvas.toDataURL("image/jpeg",0.94);
+      pageImage.style.cssText="position:absolute;left:0;top:0;width:100%;height:100%;margin:0;object-fit:fill;";
+      const layer=document.createElement("div");
+      layer.className="studio-reconstructed-text-layer";
+      layer.style.cssText="position:absolute;left:0;top:0;width:100%;height:100%;";
+      ocrLines.forEach(line=>{
+        const b=line.bbox;
+        const x=Math.max(0,b.x0*sx),y=Math.max(0,b.y0*sy);
+        const w=Math.max(2,(b.x1-b.x0)*sx),h=Math.max(3,(b.y1-b.y0)*sy);
+        const span=document.createElement("span");
+        span.className="studio-reconstructed-line";
+        span.contentEditable="true";
+        span.spellcheck=true;
+        span.textContent=String(line.text||"").trim();
+        span.style.cssText="position:absolute;left:"+x.toFixed(2)+"px;top:"+y.toFixed(2)+"px;width:"+w.toFixed(2)+"px;height:"+Math.max(h*1.2, h+1).toFixed(2)+"px;font-family:Georgia,serif;font-size:"+Math.max(7,Math.min(32,h*.82)).toFixed(2)+"px;line-height:1;white-space:pre;overflow:hidden;color:#202020;";
+        layer.append(span);
+      });
+      pageBlock.classList.add("studio-reconstructed-page");
+      pageBlock.dataset.pageWidth=String(pageWidth);
+      pageBlock.dataset.pageHeight=String(pageHeight);
+      pageBlock.style.cssText="position:relative;width:"+pageWidth+"px;height:"+pageHeight+"px;margin:18px auto 28px;padding:0;border:1px solid #ddd;overflow:hidden;background:#fff;box-sizing:border-box;";
+      pageBlock.append(pageImage,layer);
+      const note=document.createElement("p");
+      note.className="studio-source-caption";
+      note.textContent="Восстановленный макет: распознанные строки можно исправлять прямо на странице. Иллюстрации и фон сохранены; точность зависит от качества скана.";
+      editor.append(heading,pageBlock,note);
+    }else{
+      const pageImage=document.createElement("img");
+      pageImage.className="studio-source-page-image";
+      pageImage.alt="Оригинальный вид страницы "+n+" из PDF";
+      pageImage.src=canvas.toDataURL("image/jpeg",0.92);
+      const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
+      const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
+      const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
+      textBlock.textContent=extracted||"[Текст не распознан]";
+      pageBlock.append(heading,imageCaption,pageImage,textCaption,textBlock);
+      editor.append(pageBlock);
+    }
+    canvas.width=canvas.height=0;
     setProgress(n/pdf.numPages*100);
   }
 }
 function safeImportedStyle(value){
-  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
+  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout","position","left","top","z-index","white-space","overflow","object-fit"]);
   const safe=[];
   String(value||"").split(";").forEach(part=>{
     const i=part.indexOf(":");if(i<1)return;
     const key=part.slice(0,i).trim().toLowerCase(),val=part.slice(i+1).trim();
     if(!allowed.has(key)||!val||/url\s*\(|expression|javascript:/i.test(val))return;
     if(key==="text-align"&&!/^(left|right|center|justify)$/i.test(val))return;
+    if(key==="position"&&!/^(absolute|relative|static)$/i.test(val))return;
+    if(key==="white-space"&&!/^(normal|pre|pre-wrap|nowrap)$/i.test(val))return;
+    if(key==="overflow"&&!/^(hidden|visible|auto)$/i.test(val))return;
+    if(key==="object-fit"&&!/^(contain|cover|fill)$/i.test(val))return;
+    if(key==="z-index"&&!/^-?\d{1,4}$/.test(val))return;
     if(key==="vertical-align"&&!/^(top|middle|bottom|baseline)$/i.test(val))return;
     if(key==="font-weight"&&!/^(normal|bold|[1-9]00)$/i.test(val))return;
     if(key==="font-style"&&!/^(normal|italic|oblique)$/i.test(val))return;
     if(key==="table-layout"&&!/^(fixed|auto)$/i.test(val))return;
     if(key==="line-height"&&!/^(normal|\\d+(?:\\.\\d+)?(?:px|pt|%)?)$/i.test(val))return;
     if(["color","background-color","border-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
-    if(["width","height","min-height","margin-top","margin-right","margin-bottom","margin-left","text-indent","letter-spacing","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    if(["width","height","min-height","left","top","margin-top","margin-right","margin-bottom","margin-left","text-indent","letter-spacing","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
     if(key==="border-style"&&!/^(none|solid|double|dotted|dashed|groove|ridge|inset|outset)$/i.test(val))return;
     safe.push(key+":"+val);
   });
@@ -305,7 +398,7 @@ function sanitizeImportedHTML(markup){
     const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
     if(style)node.setAttribute("style",style);
     const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
-    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
+    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-reconstructed-page","studio-reconstructed-text-layer","studio-reconstructed-line","studio-page-break","studio-data-table"]);
     const keptClasses=classValue.split(/\s+/).filter(name=>safeClasses.has(name));
     if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
@@ -567,7 +660,7 @@ function cleanEditorHTML(){
 }
 function documentHTML(){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{body{margin:15mm auto}.studio-page-break{border:0;margin:0}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-reconstructed-page{break-after:page;page-break-after:always;position:relative;overflow:hidden;margin:0 auto;padding:0;border:0;box-sizing:border-box}.studio-reconstructed-text-layer{position:absolute;left:0;top:0;width:100%;height:100%}.studio-reconstructed-line{display:block;position:absolute;overflow:hidden;white-space:pre}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{body{margin:15mm auto}.studio-page-break{border:0;margin:0}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
 }
 function download(blob,name){
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
@@ -618,6 +711,47 @@ function printPDF(){
   w.addEventListener("load",runPrint,{once:true});
   w.document.open();w.document.write(html);w.document.close();
   setTimeout(()=>{if(!started)runPrint();},1200);
+}
+async function exportPDFDownload(){
+  await loadScript(()=>!!window.html2pdf,"https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js","PDF export");
+  const frame=document.createElement("iframe");
+  frame.setAttribute("aria-hidden","true");
+  frame.style.cssText="position:fixed;left:-12000px;top:0;width:900px;height:1200px;border:0;opacity:0;pointer-events:none";
+  document.body.append(frame);
+  try{
+    const html=documentHTML();
+    await new Promise((resolve,reject)=>{
+      frame.onload=resolve;
+      frame.onerror=()=>reject(new Error("Не удалось подготовить страницу для PDF."));
+      frame.srcdoc=html;
+    });
+    const doc=frame.contentDocument;
+    if(!doc?.body)throw new Error("Не удалось прочитать подготовленную редакцию.");
+    if(doc.fonts?.ready)await doc.fonts.ready;
+    await Promise.all([...doc.images].map(img=>img.decode?img.decode().catch(()=>{}):Promise.resolve()));
+    const blob=await window.html2pdf().set({
+      margin:[12,12,14,12],
+      filename:safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.pdf",
+      image:{type:"jpeg",quality:0.96},
+      html2canvas:{scale:1.5,useCORS:true,backgroundColor:"#ffffff",logging:false},
+      jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
+      pagebreak:{mode:["css","legacy"]}
+    }).from(doc.body).outputPdf("blob");
+    if(!(blob instanceof Blob)||blob.size<100)throw new Error("PDF получился пустым. Попробуйте экспортировать ещё раз.");
+    const base=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document");
+    const name=base+"-редакция.pdf";
+    const id=crypto.randomUUID?.()||String(Date.now());
+    await put("books",{
+      id,name,title:(state.sourceName.replace(/\.[^.]+$/,"")||"Документ")+" — PDF-редакция",
+      author:"",ext:"pdf",type:"application/pdf",data:await blob.arrayBuffer(),
+      addedAt:Date.now(),favorite:false,sourceName:state.sourceName,
+      revisionOf:state.sourceName,revisionKind:"pdf-export",generatedFrom:"document-studio"
+    });
+    download(blob,name);
+    say("PDF-редакция создана, скачана и добавлена в библиотеку отдельной книгой. Исходный файл не изменён.");
+  }finally{
+    frame.remove();
+  }
 }
 function exportText(){download(new Blob([editor.innerText||""],{type:"text/plain;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-текст.txt");}
 let savedEditorRange=null;
@@ -897,7 +1031,7 @@ async function exportXLSX(){
 async function exportSelectedFormat(){
   const format=$("studioExportFormat").value;
   try{
-    if(format==="pdf"){printPDF();return;}
+    if(format==="pdf"){await exportPDFDownload();return;}
     if(format==="docx"){await exportDOCX();return;}
     if(format==="xlsx"){await exportXLSX();return;}
     if(format==="txt"){exportText();return;}
@@ -916,10 +1050,7 @@ $("studioExportSelected").addEventListener("click",exportSelectedFormat);
 $("studioRecognize").addEventListener("click",recognize);
 $("studioSave").addEventListener("click",()=>saveToLibrary().catch(e=>say("Не удалось сохранить: "+e.message)));
 $("studioLoadRevision").addEventListener("click",()=>loadSavedRevision());
-$("studioPDF").addEventListener("click",printPDF);
-$("studioTXT").addEventListener("click",exportText);
-$("studioDOCX").addEventListener("click",()=>exportDOCX().catch(e=>{console.error(e);say("Не удалось создать DOCX: "+e.message);}));
-$("studioXLSX").addEventListener("click",()=>exportXLSX().catch(e=>{console.error(e);say("Не удалось создать XLSX: "+e.message);}));
+$("studioPrintPDF")?.addEventListener("click",printPDF);
 $("studioBold").addEventListener("click",()=>insertCommand("bold"));
 $("studioAlignLeft").addEventListener("click",()=>insertCommand("justifyLeft"));
 $("studioAlignCenter").addEventListener("click",()=>insertCommand("justifyCenter"));
@@ -944,7 +1075,6 @@ $("studioParagraph").addEventListener("click",()=>insertCommand("formatBlock","p
 $("studioUndo").addEventListener("click",()=>insertCommand("undo"));
 $("studioRedo").addEventListener("click",()=>insertCommand("redo"));
 $("studioClear").addEventListener("click",()=>{if(confirm("Очистить рабочее поле?"))editor.replaceChildren();});
-$("studioDownloadHTML").addEventListener("click",()=>download(new Blob([documentHTML()],{type:"text/html;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+".html"));
 $("openStudioBtn").addEventListener("click",()=>{$("libraryView").classList.add("hidden");$("readerView").classList.add("hidden");$("documentStudioView").classList.remove("hidden");document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));$("openStudioBtn").classList.add("active");refreshSavedRevisions().catch(e=>say("Не удалось загрузить список редакций: "+e.message));});
 $("studioBack").addEventListener("click",()=>{$("documentStudioView").classList.add("hidden");$("libraryView").classList.remove("hidden");$("openStudioBtn").classList.remove("active");});
 fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0];if(f){state.sourceName=f.name;say("Выбран файл: "+f.name+". Нажмите «Открыть документ / распознать».");}});
