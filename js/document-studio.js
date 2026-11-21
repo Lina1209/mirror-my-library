@@ -822,7 +822,7 @@ async function exportXLSX(){
     }
     window.XLSX.utils.book_append_sheet(workbook,sheet,unique);
   });
-  window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
+  window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
   say("XLSX создан: "+tables.length+" листов. Сохранены данные, объединения ячеек и доступные размеры столбцов/строк. Формулы, стили и сложные настройки проверьте в Excel.");
 }
 async function exportSelectedFormat(){
