@@ -35,6 +35,47 @@ function plural(n) {
 }
 function setReaderStatus(text) { $("pageStatus").textContent = text; }
 
+function updateReaderProgress(percentValue, detail = "") {
+  const range = $("readerProgressRange");
+  const value = Math.max(0, Math.min(100, Number(percentValue) || 0));
+  if (range) {
+    range.value = String(Math.round(value * 10));
+    range.disabled = !state.activeBook;
+  }
+  const percentLabel = $("readerProgressPercent");
+  if (percentLabel) percentLabel.textContent = Math.round(value) + "%";
+  const textLabel = $("readerProgressText");
+  if (textLabel) textLabel.textContent = detail || (state.activeBook ? "Прогресс чтения" : "Прогресс чтения");
+}
+
+$("readerProgressRange")?.addEventListener("change", async event => {
+  if (!state.activeBook) return;
+  const fraction = Number(event.target.value) / 1000;
+  if (state.pdf) {
+    state.pdfPage = Math.max(1, Math.min(state.pdf.numPages, Math.round(fraction * (state.pdf.numPages - 1)) + 1));
+    await renderPDFPage();
+  } else if (state.rendition && state.epub) {
+    try {
+      if (!state.epub.locations.length()) await state.epub.locations.generate(1000);
+      const cfi = state.epub.locations.cfiFromPercentage(fraction);
+      if (cfi) await state.rendition.display(cfi);
+    } catch (error) {
+      console.warn("EPUB progress navigation:", error);
+      toast("Не удалось перейти к выбранному месту в EPUB.");
+    }
+  } else if (state.currentTextPages.length) {
+    state.textPage = Math.max(0, Math.min(state.currentTextPages.length - 1, Math.round(fraction * (state.currentTextPages.length - 1))));
+    if (state.activeBook.ext === "fb2") renderFB2Page();
+    else if (state.activeBook.ext === "epub") renderEPUBFallbackPage();
+    else renderTextPage();
+  } else if (state.activeBook.ext === "html") {
+    const content = $("readerContent");
+    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+    content.scrollTop = maxScroll * fraction;
+    updateReaderProgress(fraction * 100);
+  }
+});
+
 async function refresh() {
   const [books, progress] = await Promise.all([getAll("books"), getAll("progress")]);
   const progressByBook = new Map(progress.map(item => [item.bookId, item]));
@@ -351,7 +392,7 @@ function splitText(text, maxLength = 2800) {
 function updateTextNav(label = "Страница") {
   $("prevBtn").disabled = state.textPage <= 0;
   $("nextBtn").disabled = state.textPage >= state.currentTextPages.length - 1;
-  setReaderStatus(`${label} ${state.textPage + 1} из ${state.currentTextPages.length}`);
+  setReaderStatus(`${label} ${state.textPage + 1} из ${state.currentTextPages.length}`);\n  updateReaderProgress((state.textPage + 1) / Math.max(1, state.currentTextPages.length) * 100, label === "Страница" ? "Позиция в книге" : label);
 }
 
 function renderTextPage() {
@@ -404,7 +445,7 @@ async function openHTML(book, progress) {
   state.currentTextPages = [];
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
-  setReaderStatus("HTML-документ");
+  setReaderStatus("HTML-документ");\n  updateReaderProgress(progress?.percent || 0, "Позиция в документе");
   await saveProgress(book.id, progress?.percent || 0, { page: progress?.page || 0 });
 }
 
@@ -422,7 +463,7 @@ async function openEPUB(book, progress) {
     state.rendition.on("relocated", location => {
       const percentage = location.start?.percentage || 0;
       saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
-      setReaderStatus(`Прочитано ${Math.round(percentage * 100)}%`);
+      const displayed = location.start?.displayed;\n      const pageDetail = displayed?.total ? `Страница ${displayed.page} из ${displayed.total}` : "Позиция в EPUB";\n      setReaderStatus(pageDetail);\n      updateReaderProgress(percentage * 100, pageDetail);
     });
     await state.rendition.display(progress?.cfi || undefined);
     state.rendition.themes.fontSize(`${state.fontSize}px`);
@@ -574,7 +615,7 @@ async function renderPDFPage() {
   updatePDFToolButtons();
   $("prevBtn").disabled = state.pdfPage <= 1;
   $("nextBtn").disabled = state.pdfPage >= state.pdf.numPages;
-  setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);
+  setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);\n  updateReaderProgress(state.pdfPage / state.pdf.numPages * 100, `Страница ${state.pdfPage} из ${state.pdf.numPages}`);
   await saveProgress(state.activeBook.id, state.pdfPage / state.pdf.numPages * 100,
     { page: state.pdfPage });
 }
@@ -1342,7 +1383,7 @@ function showReaderHome() {
   $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>';
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
-  $("pageStatus").textContent = "Готово к чтению";
+  $("pageStatus").textContent = "Готово к чтению";\n  updateReaderProgress(0, "Прогресс чтения");
   $("readerChooseBookBtn").onclick = () => $("backBtn").click();
 }
 $("readerNavBtn")?.addEventListener("click", () => {
