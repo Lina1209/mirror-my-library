@@ -6,6 +6,91 @@ const editor = $("studioEditor");
 const status = $("studioStatus");
 const progress = $("studioProgress");
 const fileInput = $("studioFile");
+const studioPreview = {file:null,pdf:null,page:1,zoom:"fit",renderTask:null,objectUrl:null};
+const previewSurface=$("studioPreviewSurface");
+const previewMeta=$("studioPreviewMeta");
+const previewControls=$("studioPreviewControls");
+const previewDownload=$("studioPreviewDownload");
+const previewZoom=$("studioPreviewZoom");
+function previewSay(message){if(previewMeta)previewMeta.textContent=message;}
+function previewSetPageLabel(){const total=studioPreview.pdf?.numPages||1;$("studioPreviewPage").textContent=studioPreview.pdf?"Страница "+studioPreview.page+" из "+total:"";}
+function previewDownloadOriginal(){
+  const file=studioPreview.file;if(!file)return;
+  const url=URL.createObjectURL(file),a=document.createElement("a");a.href=url;a.download=file.name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+async function previewLoadPDF(file){
+  const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+  studioPreview.pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+  studioPreview.page=1;previewControls.hidden=false;await previewRenderPDF();
+  previewSay("PDF · "+studioPreview.pdf.numPages+" страниц · оригинал отображается без OCR.");
+}
+async function previewRenderPDF(){
+  if(!studioPreview.pdf)return;
+  const page=await studioPreview.pdf.getPage(studioPreview.page),base=page.getViewport({scale:1});
+  const surfaceW=Math.max(300,previewSurface.clientWidth-24);
+  const zoom=studioPreview.zoom==="fit"?Math.min(1.6,surfaceW/base.width):Number(studioPreview.zoom);
+  const viewport=page.getViewport({scale:zoom}),canvas=document.createElement("canvas"),ratio=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=Math.round(viewport.width*ratio);canvas.height=Math.round(viewport.height*ratio);
+  canvas.style.width=Math.round(viewport.width)+"px";canvas.style.height=Math.round(viewport.height)+"px";
+  await page.render({canvasContext:canvas.getContext("2d"),viewport,transform:ratio===1?null:[ratio,0,0,ratio,0,0]}).promise;
+  previewSurface.replaceChildren(canvas);previewSetPageLabel();
+  $("studioPreviewPrev").disabled=studioPreview.page<=1;$("studioPreviewNext").disabled=studioPreview.page>=studioPreview.pdf.numPages;
+}
+async function openStudioPreview(file){
+  if(!file)return;
+  studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
+  previewDownload.disabled=false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
+  const ext=extOf(file),type=file.type||"";
+  try{
+    if(ext==="pdf"||type==="application/pdf"){await previewLoadPDF(file);return;}
+    if(type.startsWith("image/")||["png","jpg","jpeg","webp","gif","bmp","tif","tiff"].includes(ext)){
+      const img=document.createElement("img");img.className="studio-preview-image";img.alt=file.name;
+      studioPreview.objectUrl=URL.createObjectURL(file);img.src=studioPreview.objectUrl;
+      img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%";
+      img.onload=()=>previewSay(file.name+" · "+img.naturalWidth+" × "+img.naturalHeight+" · оригинальное изображение");
+      previewSurface.replaceChildren(img);return;
+    }
+    if(["txt","md","csv","log","json","xml"].includes(ext)||type.startsWith("text/")){
+      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=await file.text();previewSurface.replaceChildren(pre);previewSay(file.name+" · текстовый просмотр");return;
+    }
+    if(["html","htm"].includes(ext)){
+      const content=sanitizeImportedHTML(await file.text()),frame=document.createElement("iframe");frame.className="studio-preview-frame";frame.setAttribute("sandbox","");frame.srcdoc=content;previewSurface.replaceChildren(frame);previewSay(file.name+" · безопасный HTML-предпросмотр");return;
+    }
+    if(ext==="docx"){
+      await loadScript(()=>!!window.mammoth,"https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js","DOCX viewer");
+      const result=await window.mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
+      previewSurface.innerHTML=sanitizeImportedHTML(result.value);previewSay(file.name+" · предпросмотр DOCX (возможны отличия от Word)");return;
+    }
+    if(["xlsx","xls","csv"].includes(ext)){
+      await loadScript(()=>!!window.XLSX,"https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js","табличный просмотр");
+      const workbook=window.XLSX.read(await file.arrayBuffer(),{type:"array"}),tabs=document.createElement("div");tabs.className="studio-preview-sheet-tabs";
+      const sheetArea=document.createElement("div");sheetArea.className="studio-preview-sheet";
+      const showSheet=name=>{sheetArea.innerHTML=window.XLSX.utils.sheet_to_html(workbook.Sheets[name],{editable:false});};
+      workbook.SheetNames.forEach((name,index)=>{const b=document.createElement("button");b.type="button";b.className="secondary";b.textContent=name;b.onclick=()=>showSheet(name);tabs.append(b);if(index===0)showSheet(name);});
+      previewSurface.replaceChildren(tabs,sheetArea);previewSay(file.name+" · "+workbook.SheetNames.length+" лист(ов)");return;
+    }
+    if(ext==="rtf"){
+      const raw=await file.text(),plain=raw.replace(/\\'[0-9a-f]{2}/gi,"").replace(/\\[a-z]+-?\d* ?/gi,"").replace(/[{}]/g,"").replace(/\\\\/g,"\\");
+      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=plain;previewSurface.replaceChildren(pre);previewSay(file.name+" · упрощённый просмотр RTF");return;
+    }
+    previewSurface.innerHTML='<div class="studio-preview-empty">Формат '+escapeHTML(ext.toUpperCase()||"неизвестен")+' пока нельзя визуально открыть в браузере. Оригинал можно скачать; доступные инструменты обработки — ниже.</div>';
+    previewSay(file.name+" · формат не поддерживается для визуального просмотра.");
+  }catch(error){console.error("Document preview:",error);previewSurface.textContent="Ошибка просмотра: "+error.message;previewSay("Не удалось открыть файл. Оригинал доступен для скачивания.");}
+}
+$("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
+$("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+previewDownload?.addEventListener("click",previewDownloadOriginal);
+$("studioPreviewPrev")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page>1){studioPreview.page--;previewRenderPDF();}});
+$("studioPreviewNext")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page<studioPreview.pdf.numPages){studioPreview.page++;previewRenderPDF();}});
+previewZoom?.addEventListener("change",()=>{studioPreview.zoom=previewZoom.value;if(studioPreview.pdf)previewRenderPDF();else{const img=previewSurface.querySelector("img");if(img)img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%;}});
+$("studioPreviewFullscreen")?.addEventListener("click",async()=>{
+  const box=$("studioPreviewSurface").closest(".studio-preview-card");
+  try{if(document.fullscreenElement===box)await document.exitFullscreen();else if(box.requestFullscreen)await box.requestFullscreen();else box.classList.toggle("studio-preview-expanded");}
+  catch{box.classList.toggle("studio-preview-expanded");}
+});
+window.addEventListener("resize",()=>{if(studioPreview.pdf&&studioPreview.zoom==="fit")previewRenderPDF();});
 const languages = $("studioLanguage");
 const savedOCRLanguage = localStorage.getItem("mirror-studio-language");
 if (savedOCRLanguage && [...languages.options].some(option => option.value === savedOCRLanguage)) languages.value = savedOCRLanguage;
