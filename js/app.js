@@ -414,17 +414,37 @@ async function createPDFCoverThumbnail(file) {
   }
 }
 
-async function fileToCoverData(file) {
+async function resizeCoverData(data, maxWidth = 360, maxHeight = 520) {
+  if (typeof data !== "string" || !data.startsWith("data:image/")) return "";
   return new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.84));
+      } catch { resolve(data); }
+    };
+    image.onerror = () => resolve(data);
+    image.src = data;
+  });
+}
+async function fileToCoverData(file) {
+  const raw = await new Promise(resolve => {
     const reader = new FileReader();
     reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
     reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
   });
+  return resizeCoverData(raw);
 }
 
 async function importFiles(fileList) {
   let added = 0;
+  const addedIds = [];
   for (const file of fileList) {
     let ext = extension(file.name);
     if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) {
@@ -451,14 +471,17 @@ async function importFiles(fileList) {
       const metadata = await extractMetadata(data, ext);
       if (!metadata.coverData && ext === "pdf") metadata.coverData = await createPDFCoverThumbnail(data);
       if (!metadata.coverData && ["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) metadata.coverData = await fileToCoverData(data);
+      if (metadata.coverData) metadata.coverData = await resizeCoverData(metadata.coverData);
+      const bookId = makeId();
       await put("books", {
-        id: makeId(), name: file.name, title: metadata.title,
+        id: bookId, name: file.name, title: metadata.title,
         author: metadata.author, ...(metadata.coverData ? { coverData: metadata.coverData } : {}), ext, type: file.type,
         data: await data.arrayBuffer(),
         ...(originalArchive ? { downloadData: originalArchive, downloadType: file.type || "application/zip" } : {}),
         addedAt: Date.now(), favorite: false
       });
       added++;
+      addedIds.push(bookId);
     } catch (error) {
       console.error(error);
       toast(`${file.name}: ${error.message}`);
@@ -466,7 +489,12 @@ async function importFiles(fileList) {
   }
   await refresh();
   if (added) toast(`Добавлено: ${added} ${plural(added)}`);
+  return addedIds;
 }
+window.addMirrorFileToLibrary = async file => {
+  const ids = await importFiles([file]);
+  return ids[0] || null;
+};
 
 async function saveProgress(bookId, value, locator = {}) {
   const valuePercent = percent(value);
