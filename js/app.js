@@ -379,7 +379,8 @@ async function openEPUB(book, progress) {
 }
 
 async function openPDF(book, progress) {
-  state.pdfAnnotations = book.pdfAnnotations || {};\n  state.pdfFormValues = book.pdfFormValues || {};
+  state.pdfAnnotations = book.pdfAnnotations || {};
+  state.pdfFormValues = book.pdfFormValues || {};
   state.pdfImageObjects = book.pdfImageObjects || {};
   state.pdfTextObjects = book.pdfTextObjects || {};
   state.pdfUndo = {};
