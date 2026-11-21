@@ -266,11 +266,16 @@ frameTapObserver.observe($("readerContent"),{childList:true,subtree:true});
 if($("ttsStatus"))speechObserver.observe($("ttsStatus"),{childList:true,subtree:true,characterData:true});
 if($("ttsPlayBtn"))speechObserver.observe($("ttsPlayBtn"),{childList:true,subtree:true,characterData:true});
 if(window.speechSynthesis?.addEventListener)window.speechSynthesis.addEventListener("voiceschanged",syncVoiceOptions);
+let readerWasOpen=isReaderOpen();
 const openObserver=new MutationObserver(()=>{
-  if(isReaderOpen()){
+  const open=isReaderOpen();
+  if(open&&!readerWasOpen){
+    readerWasOpen=true;
     view.classList.remove("reader-chrome-visible");
     closeOverlays();syncReaderSettings();
     $("readerDrawerBookTitle").textContent=$("readerBookTitle").textContent||"Моя книга";
+  }else if(!open){
+    readerWasOpen=false;
   }
 });
 openObserver.observe(view,{attributes:true,attributeFilter:["class"]});
