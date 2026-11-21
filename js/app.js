@@ -385,9 +385,9 @@ async function createPDFCoverThumbnail(file) {
   try {
     const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
     pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-    const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pdfDocument = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
     try {
-      const page = await document.getPage(1);
+      const page = await pdfDocument.getPage(1);
       const base = page.getViewport({ scale: 1 });
       const scale = Math.min(0.42, 180 / base.width, 240 / base.height);
       const viewport = page.getViewport({ scale: Math.max(0.1, scale) });
@@ -397,7 +397,7 @@ async function createPDFCoverThumbnail(file) {
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
       return canvas.toDataURL("image/jpeg", 0.82);
     } finally {
-      await document.destroy();
+      await pdfDocument.destroy();
     }
   } catch (error) {
     console.warn("Не удалось создать миниатюру первой страницы PDF:", error);
