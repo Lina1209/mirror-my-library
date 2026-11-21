@@ -1154,20 +1154,28 @@ window.addEventListener("resize", () => {
   }
 });
 function syncReaderFullscreen() {
-  const active = document.fullscreenElement === readerView;
+  const active = document.fullscreenElement === readerView || readerView.classList.contains("reader-fullscreen-fallback");
   fullscreenButton.textContent = active ? "⤢" : "⛶";
   fullscreenButton.title = active ? "Выйти из полноэкранного режима" : "На весь экран";
   fullscreenButton.setAttribute("aria-label", fullscreenButton.title);
   readerView.classList.toggle("reader-fullscreen", active);
+  if(state.rendition)requestAnimationFrame(()=>{try{state.rendition.resize();}catch(error){console.warn("Reader fullscreen resize:",error);}});
 }
 fullscreenButton.onclick=async()=>{
   try {
     if(document.fullscreenElement === readerView) await document.exitFullscreen();
+    else if(readerView.classList.contains("reader-fullscreen-fallback")) readerView.classList.remove("reader-fullscreen-fallback","reader-fullscreen");
     else if(readerView.requestFullscreen) await readerView.requestFullscreen();
-    else toast("Полноэкранный режим не поддерживается этим браузером");
-  } catch(e) { toast("Полноэкранный режим недоступен"); }
+    else readerView.classList.add("reader-fullscreen-fallback","reader-fullscreen");
+  } catch(e) {
+    readerView.classList.add("reader-fullscreen-fallback","reader-fullscreen");
+    toast("Включён расширенный режим чтения.");
+  }
+  syncReaderFullscreen();
 };
 document.addEventListener("fullscreenchange", syncReaderFullscreen);
+document.addEventListener("webkitfullscreenchange",syncReaderFullscreen);
+window.addEventListener("orientationchange",()=>{if(readerView.classList.contains("reader-fullscreen"))setTimeout(syncReaderFullscreen,180);});
 const readerMenuButton = $("readerMenuBtn");
 const readerSettingsMenu = $("readerSettingsMenu");
 function closeReaderMenu() {
@@ -1239,35 +1247,48 @@ if ("speechSynthesis" in window) {
 
 async function getCurrentSpeechText() {
   if (!state.activeBook) return "";
-  // PDF: извлекаем настоящий текстовый слой каждой страницы через PDF.js.
-  // Для сканированных страниц без текстового слоя потребуется OCR.
-  if (state.activeBook.ext === "pdf" && state.pdf) {
-    const pages = [];
-    for (let pageNumber = 1; pageNumber <= state.pdf.numPages; pageNumber++) {
-      const page = await state.pdf.getPage(pageNumber);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map(item => (typeof item.str === "string" ? item.str + (item.hasEOL ? "\n" : " ") : ""))
-        .join("")
-        .replace(/[ \t]+/g, " ")
-        .trim();
-      if (pageText) pages.push(pageText);
+  const book=state.activeBook,decode=()=>new TextDecoder("utf-8").decode(book.data||new ArrayBuffer(0));
+  // Читаем содержимое книги целиком, а не только видимую страницу.
+  if(["txt","fb2"].includes(book.ext)){
+    const raw=decode();
+    if(book.ext==="fb2"){
+      const parsed=new DOMParser().parseFromString(raw,"application/xml");
+      return parsed.querySelector("body")?.textContent?.replace(/\\s+/g," ").trim()||"";
     }
-    return pages.join("\n\n");
+    return raw.replace(/\\s+/g," ").trim();
   }
-  if (state.rendition?.getContents) {
-    try {
-      const epubText = state.rendition.getContents()
-        .map(item => item.document?.body?.innerText || item.document?.body?.textContent || "")
-        .join("\\n")
-        .trim();
-      if (epubText) return epubText;
-    } catch (error) { console.warn("EPUB speech text:", error); }
+  if(["html","htm"].includes(book.ext)){
+    const doc=new DOMParser().parseFromString(decode(),"text/html");
+    doc.querySelectorAll("script,style,iframe,svg").forEach(node=>node.remove());
+    return doc.body?.innerText||doc.body?.textContent||"";
   }
-  return $("readerContent")?.innerText?.trim() || $("readerContent")?.textContent?.trim() || "";
+  if(book.ext==="pdf"&&state.pdf){
+    const pages=[];
+    for(let n=1;n<=state.pdf.numPages;n++){
+      const page=await state.pdf.getPage(n),textContent=await page.getTextContent();
+      const pageText=textContent.items.map(item=>typeof item.str==="string"?item.str+(item.hasEOL?"\\n":" "):"").join("").replace(/[ \\t]+/g," ").trim();
+      if(pageText)pages.push(pageText);
+    }
+    return pages.join("\\n\\n");
+  }
+  if(state.epub){
+    try{
+      const spine=state.epub.spine?.items||[],sections=[];
+      for(const item of spine){
+        try{
+          const doc=await item.load(state.epub.load.bind(state.epub));
+          const text=doc?.body?.innerText||doc?.body?.textContent||"";
+          if(text.trim())sections.push(text.trim());
+          item.unload?.();
+        }catch(error){console.warn("EPUB chapter speech:",error);}
+      }
+      if(sections.length)return sections.join("\\n\\n");
+    }catch(error){console.warn("EPUB speech extraction:",error);}
+  }
+  return $("readerContent")?.innerText?.trim()||$("readerContent")?.textContent?.trim()||"";
 }
 
-function splitSpeechText(text, maxLength = 1800) {
+function splitSpeechText(text, maxLength = 1300) {
   const chunks = [];
   let remaining = text.replace(/\s+/g, " ").trim();
   while (remaining.length) {
@@ -1297,7 +1318,7 @@ function speakNextChunk(token) {
     utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
   }
   utterance.rate = Number($("ttsRate")?.value || 0.9);
-  utterance.onstart = updateTTSButtons;
+  utterance.onstart = () => { tts.active=true; updateTTSButtons(); };
   utterance.onend = () => {
     if (token === tts.token) speakNextChunk(token);
   };
@@ -1334,31 +1355,28 @@ function stopBookSpeech() {
 
 async function startBookSpeech() {
   if (!("speechSynthesis" in window)) {
-    toast("Этот браузер не поддерживает озвучивание.");
+    toast("В этом браузере нет Web Speech API. Попробуйте Chrome на Android и проверьте установленный движок синтеза речи.");
     return;
   }
-  if (!state.activeBook) {
-    toast("Сначала откройте книгу.");
-    return;
-  }
+  if (!state.activeBook) { toast("Сначала откройте книгу."); return; }
   stopBookSpeech();
-  const playToken = tts.token;
-  let text = "";
-  try {
-    text = await getCurrentSpeechText();
-  } catch (error) {
-    console.error("Не удалось извлечь текст для озвучивания:", error);
-    toast("Не удалось извлечь текст из документа.");
-    return;
+  const playToken=tts.token;
+  // Unlock Android/mobile speech synthesis directly inside the user's tap.
+  try { const unlock=new SpeechSynthesisUtterance(" ");unlock.volume=0;unlock.lang="ru-RU";window.speechSynthesis.speak(unlock);window.speechSynthesis.resume(); } catch(e){console.warn("Speech unlock:",e);}
+  let text="";
+  try { text=await getCurrentSpeechText(); }
+  catch(error){console.error("Не удалось извлечь текст для озвучивания:",error);toast("Не удалось извлечь текст из документа.");return;}
+  if(playToken!==tts.token)return;
+  text=String(text||"").replace(/\\s+/g," ").trim();
+  if(!text){
+    toast(state.activeBook.ext==="pdf"?"В PDF не найден текстовый слой. Для сканированных страниц сначала запустите OCR.":"Не удалось получить текст этой книги для озвучивания.");
+    stopBookSpeech();return;
   }
-  if (playToken !== tts.token) return;
-  if (!text) {
-    toast(state.activeBook.ext === "pdf"
-      ? "В этом PDF не найден текстовый слой. Для сканированных страниц сначала выполните OCR."
-      : "На этой странице пока нет текста для озвучивания.");
-    return;
-  }
-  tts.queue = splitSpeechText(text);
+  // Cancel the silent unlock utterance after text extraction; resume the queue in small chunks for mobile engines.
+  window.speechSynthesis.cancel();
+  tts.queue=splitSpeechText(text,1200);
+  if(!tts.voices.length)loadTTSVoices();
+  window.speechSynthesis.resume();
   speakNextChunk(playToken);
 }
 
