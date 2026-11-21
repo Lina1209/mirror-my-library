@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - feature/reader-fullscreen-tts-studio
+      - fix/library-reader-formats-pdf-export
 jobs:
   syntax:
     runs-on: ubuntu-latest
