@@ -1,4 +1,4 @@
-const CACHE = "mirror-library-v39";
+const CACHE = "mirror-library-v40";
 const CORE = [
   "./",
   "./index.html",
