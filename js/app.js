@@ -1305,7 +1305,7 @@ function splitSpeechText(text, maxLength = 1300) {
 
 function speakNextChunk(token) {
   if (token !== tts.token || !tts.queue.length) {
-    if (token === tts.token) { tts.utterance = null; updateTTSButtons(); }
+    if (token === tts.token) { tts.utterance = null; tts.active=false; updateTTSButtons(); }
     return;
   }
   const text = tts.queue.shift();
@@ -1314,26 +1314,27 @@ function speakNextChunk(token) {
   const voice = tts.voices.find(item => item.voiceURI === selectedVoice);
   if (selectedVoice && voice) {
     utterance.voice = voice;
-    utterance.lang = utterance.voice.lang;
+    utterance.lang = voice.lang || "ru-RU";
   } else {
     utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
   }
   utterance.rate = Number($("ttsRate")?.value || 0.9);
   utterance.onstart = () => { tts.active=true; updateTTSButtons(); };
   utterance.onend = () => {
-    if (token === tts.token) speakNextChunk(token);
+    if (token === tts.token) { tts.active=false; speakNextChunk(token); }
   };
   utterance.onerror = event => {
     if (token !== tts.token || event.error === "canceled" || event.error === "interrupted") return;
     tts.queue = [];
+    tts.active=false;
     updateTTSButtons();
-    toast("Не удалось продолжить озвучивание: " + event.error);
+    toast("Озвучивание остановилось (" + event.error + "). Проверьте голос/движок синтеза в настройках устройства.");
   };
   tts.utterance = utterance;
-  window.speechSynthesis.speak(utterance);
+  try { window.speechSynthesis.resume(); window.speechSynthesis.speak(utterance); }
+  catch(error){console.error("Speech synthesis:",error);tts.queue=[];toast("Движок озвучивания не запустился.");}
   updateTTSButtons();
 }
-
 function updateTTSButtons() {
   if (!ttsPlayButton) return;
   const speaking = window.speechSynthesis?.speaking || false;
@@ -1349,12 +1350,12 @@ function updateTTSButtons() {
 function stopBookSpeech() {
   if (!("speechSynthesis" in window)) return;
   tts.token++;
+  tts.active=false;
   tts.queue = [];
   window.speechSynthesis.cancel();
   tts.utterance = null;
   updateTTSButtons();
 }
-
 async function startBookSpeech() {
   if (!("speechSynthesis" in window)) {
     toast("В этом браузере нет Web Speech API. Попробуйте Chrome на Android и проверьте установленный движок синтеза речи.");
@@ -1363,25 +1364,28 @@ async function startBookSpeech() {
   if (!state.activeBook) { toast("Сначала откройте книгу."); return; }
   stopBookSpeech();
   const playToken=tts.token;
-  // Unlock Android/mobile speech synthesis directly inside the user's tap.
-  try { const unlock=new SpeechSynthesisUtterance(" ");unlock.volume=0;unlock.lang="ru-RU";window.speechSynthesis.speak(unlock);window.speechSynthesis.resume(); } catch(e){console.warn("Speech unlock:",e);}
+  // Prime mobile engines directly during the user's tap.
+  try {
+    const unlock=new SpeechSynthesisUtterance(" ");
+    unlock.volume=0;unlock.lang="ru-RU";
+    window.speechSynthesis.speak(unlock);
+    window.speechSynthesis.resume();
+  } catch(e){console.warn("Speech unlock:",e);}
   let text="";
   try { text=await getCurrentSpeechText(); }
   catch(error){console.error("Не удалось извлечь текст для озвучивания:",error);toast("Не удалось извлечь текст из документа.");return;}
   if(playToken!==tts.token)return;
-  text=String(text||"").replace(/\\s+/g," ").trim();
+  text=String(text||"").replace(/\s+/g," ").trim();
   if(!text){
     toast(state.activeBook.ext==="pdf"?"В PDF не найден текстовый слой. Для сканированных страниц сначала запустите OCR.":"Не удалось получить текст этой книги для озвучивания.");
     stopBookSpeech();return;
   }
-  // Cancel the silent unlock utterance after text extraction; resume the queue in small chunks for mobile engines.
   window.speechSynthesis.cancel();
   tts.queue=splitSpeechText(text,1200);
   if(!tts.voices.length)loadTTSVoices();
   window.speechSynthesis.resume();
   speakNextChunk(playToken);
 }
-
 ttsPlayButton?.addEventListener("click", startBookSpeech);
 ttsPauseButton?.addEventListener("click", () => {
   if (!("speechSynthesis" in window)) return;
