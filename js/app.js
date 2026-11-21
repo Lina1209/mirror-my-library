@@ -779,64 +779,51 @@ async function exportEditedPDF(){
     await persistPDFAnnotations();
     await loadGlobalScript(()=>!!window.PDFLib?.PDFDocument,
       "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF");
-    const PDFDocument=window.PDFLib.PDFDocument;
-    const output=await PDFDocument.load(state.activeBook.data.slice(0));
+    const PDFDocument=window.PDFLib.PDFDocument,output=await PDFDocument.load(state.activeBook.data.slice(0));
     const editedPages=new Set([...Object.keys(state.pdfAnnotations),...Object.keys(state.pdfImageObjects),...Object.keys(state.pdfTextObjects)]);
     for(const pageNumber of editedPages){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
+      const page=output.getPage(index),size=page.getSize();
+      // Draw markup into a transparent overlay so the original PDF text/vector content remains intact.
+      const pdfPage=await state.pdf.getPage(index+1),viewport=pdfPage.getViewport({scale:2});
+      const overlay=document.createElement("canvas");overlay.width=Math.ceil(viewport.width);overlay.height=Math.ceil(viewport.height);
+      const ctx=overlay.getContext("2d");
       const dataUrl=state.pdfAnnotations[pageNumber];
-      const pageCanvas=document.createElement("canvas");
-      const pdfPage=await state.pdf.getPage(index+1);
-      const viewport=pdfPage.getViewport({scale:2});
-      pageCanvas.width=Math.ceil(viewport.width);pageCanvas.height=Math.ceil(viewport.height);
-      const pageContext=pageCanvas.getContext("2d");
-      await pdfPage.render({canvasContext:pageContext,viewport}).promise;
       if(dataUrl){
-        const annotationImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
-        pageContext.drawImage(annotationImage,0,0,pageCanvas.width,pageCanvas.height);
-        annotationImage.close?.();
+        const annotationImage=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("Не удалось прочитать аннотации"));image.src=dataUrl;});
+        ctx.drawImage(annotationImage,0,0,overlay.width,overlay.height);
       }
       for(const object of (state.pdfImageObjects[pageNumber]||[])){
-        const objectImage=await createImageBitmap(await (await fetch(object.src)).blob());
-        pageContext.drawImage(objectImage,object.x*pageCanvas.width,object.y*pageCanvas.height,
-          object.w*pageCanvas.width,object.h*pageCanvas.height);
-        objectImage.close?.();
+        const image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error("Не удалось открыть добавленное изображение"));img.src=object.src;});
+        ctx.drawImage(image,object.x*overlay.width,object.y*overlay.height,object.w*overlay.width,object.h*overlay.height);
       }
       for(const object of (state.pdfTextObjects[pageNumber]||[])){
-        pageContext.save();
-        if(object.background!==false){pageContext.fillStyle=object.backgroundColor||"#ffffff";
-          pageContext.fillRect(object.x*pageCanvas.width,object.y*pageCanvas.height,
-            object.w*pageCanvas.width,object.h*pageCanvas.height);}
-        pageContext.fillStyle=object.color||"#202020";
-        pageContext.font=`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*pageCanvas.height)}px ${object.fontFamily||"Arial"}`;
-        pageContext.textBaseline="top";
-        pageContext.fillText(object.text,object.x*pageCanvas.width,object.y*pageCanvas.height,
-          object.w*pageCanvas.width);
-        pageContext.restore();
+        ctx.save();
+        if(object.background!==false){ctx.fillStyle=object.backgroundColor||"#ffffff";ctx.fillRect(object.x*overlay.width,object.y*overlay.height,object.w*overlay.width,object.h*overlay.height);}
+        ctx.fillStyle=object.color||"#202020";
+        ctx.font=\`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*overlay.height)}px ${object.fontFamily||"Arial"}\`;
+        ctx.textBaseline="top";ctx.fillText(object.text,object.x*overlay.width,object.y*overlay.height,object.w*overlay.width);ctx.restore();
       }
-      const png=await new Promise(resolve=>pageCanvas.toBlob(resolve,"image/png"));
-      if(!png)throw new Error("Не удалось подготовить изображение страницы PDF.");
-      const embedded=await output.embedPng(await png.arrayBuffer()),page=output.getPage(index),size=page.getSize();
-      page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
-      pageCanvas.width=0;pageCanvas.height=0;
+      if(overlay.width&&overlay.height){
+        const png=await new Promise((resolve,reject)=>overlay.toBlob(blob=>blob?resolve(blob):reject(new Error("Не удалось подготовить аннотации")),"image/png"));
+        const embedded=await output.embedPng(await png.arrayBuffer());
+        page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
+      }
+      overlay.width=0;overlay.height=0;
     }
     const bytes=await output.save();
     if(!bytes||bytes.length<5||String.fromCharCode(...bytes.slice(0,5))!=="%PDF-")throw new Error("Редактор не сформировал корректный PDF-файл.");
+    const base=state.activeBook.name.replace(/\.pdf$/i,""),name=base+"-edited.pdf";
     const data=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
-    const base=state.activeBook.name.replace(/\.pdf$/i,"");
-    const name=base+"-edited.pdf";
-    const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",
-      author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,
-      addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{},pdfTextObjects:{}};
+    const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{},pdfTextObjects:{}};
     await put("books",edited);
     if(state.pdfExportUrl)URL.revokeObjectURL(state.pdfExportUrl);
     state.pdfExportUrl=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
     const downloadLink=$("pdfExportDownloadLink");
     if(downloadLink){downloadLink.href=state.pdfExportUrl;downloadLink.download=name;downloadLink.hidden=false;downloadLink.click();}
-    await refresh();toast("Новая PDF-копия сохранена в библиотеке. Если загрузка не началась, нажмите «Скачать готовый PDF». Оригинал не изменён.");
+    await refresh();toast("Новая PDF-копия сохранена в библиотеке. Оригинальный текст и векторная графика сохранены, аннотации добавлены поверх.");
   }catch(error){console.error("PDF export:",error);toast("Не удалось сохранить PDF: "+(error.message||"ошибка экспорта"));}
 }
-
 async function loadGlobalScript(test,src,name){
  if(test())return;
  await new Promise((resolve,reject)=>{const el=document.createElement("script");el.src=src;el.onload=resolve;el.onerror=()=>reject(new Error("Не удалось загрузить модуль "+name+". Нужен интернет."));document.head.append(el);});
