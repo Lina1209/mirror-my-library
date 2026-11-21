@@ -1361,6 +1361,7 @@ async function openBook(bookId) {
   const book = await getOne("books", bookId);
   if (!book) return;
   state.activeBook = book;
+  $("readerView").dataset.bookId = book.id;
   state.epub = null;
   state.rendition = null;
   state.epubText = "";
@@ -1538,11 +1539,26 @@ async function shareSelectedText() {
   }
 }
 async function shareCurrentBook() {
-  const book=state.activeBook; if(!book) return;
-  const source=getBookDownloadInfo(book);
-  const file=new File([source.data],source.name,{type:source.type});
-  try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else downloadBook(book); }
-  catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
+  const book=state.activeBook;
+  if(!book){toast("Сначала откройте книгу.");return;}
+  try {
+    const source=getBookDownloadInfo(book);
+    if(!source.data){toast("Не удалось найти исходный файл книги.");return;}
+    if(typeof File!=="undefined" && typeof navigator.share==="function"){
+      const file=new File([source.data],source.name,{type:source.type||"application/octet-stream"});
+      if(typeof navigator.canShare==="function" && navigator.canShare({files:[file]})){
+        await navigator.share({title:book.title||source.name,text:"Файл из моей библиотеки ©Mirror",files:[file]});
+        return;
+      }
+    }
+    downloadBook(book);
+    toast("Меню отправки файлов здесь недоступно. Книга скачана — прикрепите её в Telegram, WhatsApp или другом приложении.");
+  } catch(error) {
+    if(error?.name==="AbortError")return;
+    console.warn("Share book:",error);
+    downloadBook(book);
+    toast("Не удалось открыть отправку файла. Книга скачана — прикрепите её в нужном приложении.");
+  }
 }
 async function getCurrentPDFPageText() {
   if (!state.pdf) return "";
@@ -1585,6 +1601,8 @@ $("bookmarkBtn").onclick = async () => {
     id: makeId(), bookId: state.activeBook.id,
     page: state.pdf ? state.pdfPage : state.textPage,
     cfi: state.rendition?.currentLocation()?.start?.cfi || "",
+    percent: Number($("readerProgressRange")?.value || 0) / 10,
+    label: $("pageStatus")?.textContent || "",
     createdAt: Date.now()
   };
   await put("bookmarks", mark);
@@ -1905,6 +1923,7 @@ function speakNextChunk(token) {
     utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
   }
   utterance.rate = Number($("ttsRate")?.value || 0.9);
+  utterance.pitch = Math.max(0.5, Math.min(2, Number(localStorage.getItem("mirror-tts-pitch") || 1)));
   utterance.onstart = () => { tts.active=true; updateTTSButtons(); };
   utterance.onend = () => {
     if (token === tts.token) { tts.active=false; speakNextChunk(token); }

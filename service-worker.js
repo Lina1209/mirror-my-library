@@ -1,9 +1,10 @@
-const CACHE = "mirror-library-v54";
+const CACHE = "mirror-library-v56";
 const CORE = [
   "./",
   "./index.html",
   "./css/styles.css",
   "./js/app.js",
+  "./js/reader-experience.js",
   "./js/translation.js",
   "./js/document-studio.js",
   "./js/db.js",
