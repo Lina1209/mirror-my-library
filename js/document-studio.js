@@ -329,11 +329,12 @@ function restoreDocxPageSettings(xmlText){
   const sectPr=xml.getElementsByTagNameNS(WORD_NS,"sectPr")[0];
   if(!sectPr)return false;
   const pgSz=xmlKid(sectPr,"pgSz"),pgMar=xmlKid(sectPr,"pgMar");
+  const twips=(node,key,fallback)=>{const raw=xmlAttr(node,key);const value=raw===""?fallback:Number(raw);return Number.isFinite(value)&&value>=0?Math.round(value):fallback;};
   const settings={
-    width:xmlNumber(pgSz,"w")||11906,height:xmlNumber(pgSz,"h")||16838,
-    top:xmlNumber(pgMar,"top")||1134,right:xmlNumber(pgMar,"right")||850,
-    bottom:xmlNumber(pgMar,"bottom")||1134,left:xmlNumber(pgMar,"left")||850,
-    header:xmlNumber(pgMar,"header")||567,footer:xmlNumber(pgMar,"footer")||567
+    width:twips(pgSz,"w",11906),height:twips(pgSz,"h",16838),
+    top:twips(pgMar,"top",1134),right:twips(pgMar,"right",850),
+    bottom:twips(pgMar,"bottom",1134),left:twips(pgMar,"left",850),
+    header:twips(pgMar,"header",567),footer:twips(pgMar,"footer",567)
   };
   let marker=editor.querySelector(".studio-docx-page-settings");
   if(!marker){marker=document.createElement("div");marker.className="studio-docx-page-settings";editor.prepend(marker);}
