@@ -1319,23 +1319,83 @@ $("fontDown").onclick = () => {
 };
 $("readerFontUpQuick").onclick = () => $("fontUp").click();
 $("readerFontDownQuick").onclick = () => $("fontDown").click();
-function getSelectedReaderText() {
-  const selection = window.getSelection?.();
-  const selected = selection?.toString().trim() || "";
-  if (!selected || !$("readerContent").contains(selection.anchorNode)) return "";
-  return selected;
+// Запоминаем выделение до нажатия кнопок меню: на мобильных браузерах
+// фокус панели иногда снимает визуальное выделение раньше обработчика click.
+let lastReaderSelection = "";
+let lastReaderSelectionBookId = null;
+function rememberReaderSelection() {
+  const selected = getSelectedReaderText(false);
+  if (selected) {
+    lastReaderSelection = selected;
+    lastReaderSelectionBookId = state.activeBook?.id ?? null;
+  }
 }
+function getSelectedReaderText(useCache = true) {
+  const root = $("readerContent");
+  const selections = [document.getSelection?.()];
+  // EPUB.js отображает книгу во вложенном iframe: выделение принадлежит его document.
+  root.querySelectorAll("iframe").forEach(frame => {
+    try { selections.push(frame.contentWindow?.getSelection?.()); } catch {}
+  });
+  for (const selection of selections) {
+    const selected = selection?.toString().trim() || "";
+    if (!selected || !selection.anchorNode) continue;
+    const anchor = selection.anchorNode;
+    const belongsToReader = root.contains(anchor) ||
+      (anchor.ownerDocument?.defaultView?.frameElement && root.contains(anchor.ownerDocument.defaultView.frameElement));
+    if (belongsToReader) return selected;
+  }
+  return useCache && lastReaderSelectionBookId === (state.activeBook?.id ?? null)
+    ? lastReaderSelection : "";
+}
+document.addEventListener("selectionchange", rememberReaderSelection);
+$("readerContent").addEventListener("pointerup", rememberReaderSelection);
+$("readerContent").addEventListener("keyup", rememberReaderSelection);
+["copySelectionBtn", "shareSelectionBtn"].forEach(id => {
+  $(id).addEventListener("pointerdown", rememberReaderSelection);
+  $(id).addEventListener("touchstart", rememberReaderSelection, { passive: true });
+});
 async function copySelectedText() {
   const selected = getSelectedReaderText();
   if (!selected) { toast("Сначала выделите текст в документе"); return; }
-  try { await navigator.clipboard.writeText(selected); toast("Выделенный текст скопирован"); }
-  catch { const area=document.createElement("textarea"); area.value=selected; document.body.append(area); area.select(); const ok=document.execCommand("copy"); area.remove(); toast(ok ? "Выделенный текст скопирован" : "Не удалось скопировать текст"); }
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(selected);
+    else throw new Error("Clipboard API unavailable");
+    toast("Выделенный текст скопирован — теперь его можно вставить в другое приложение");
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = selected;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    area.remove();
+    toast(ok ? "Выделенный текст скопирован" : "Не удалось скопировать текст. Попробуйте системное меню выделения Android.");
+  }
 }
 async function shareSelectedText() {
-  const selected=getSelectedReaderText();
+  const selected = getSelectedReaderText();
   if (!selected) { toast("Сначала выделите текст в документе"); return; }
-  try { if(navigator.share) await navigator.share({title:state.activeBook?.title || "Текст из ©Mirror",text:selected}); else { await navigator.clipboard.writeText(selected); toast("Текст скопирован — вставьте его в нужное приложение"); } }
-  catch(error) { if(error.name!=="AbortError") toast("Не удалось открыть меню отправки"); }
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: state.activeBook?.title || "Текст из ©Mirror", text: selected });
+    } else {
+      await copySelectedText();
+      toast("Если меню отправки недоступно, текст уже скопирован — вставьте его в нужное приложение");
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(selected);
+          toast("Меню отправки не открылось. Текст скопирован — вставьте его вручную.");
+        } else toast("Не удалось открыть меню отправки");
+      } catch { toast("Не удалось отправить или скопировать текст"); }
+    }
+  }
 }
 async function shareCurrentBook() {
   const book=state.activeBook; if(!book) return;
