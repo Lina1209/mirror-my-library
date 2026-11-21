@@ -1,4 +1,5 @@
-const CACHE = "mirror-library-v56";
+const CACHE_PREFIX = "mirror-library-";
+const CACHE = "mirror-library-v57";
 const CORE = [
   "./",
   "./index.html",
@@ -22,28 +23,41 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      Promise.all(
+        keys
+          .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE)
+          .map(key => caches.delete(key))
+      )
     ).then(() => self.clients.claim())
   );
 });
 
 self.addEventListener("fetch", event => {
-  if (event.request.method !== "GET") return;
+  const request = event.request;
+  if (request.method !== "GET" || request.headers.has("range")) return;
 
-  const url = new URL(event.request.url);
-  if (url.origin !== location.origin) return; // CDN не кэшируем
+  const url = new URL(request.url);
+  const scope = new URL(self.registration.scope);
+  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
 
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      const network = fetch(event.request).then(response => {
-        if (response && response.status === 200) {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put(event.request, copy));
-        }
-        return response;
-      }).catch(() => cached);
+  const cachePromise = caches.open(CACHE);
+  const updatePromise = cachePromise.then(async cache => {
+    const response = await fetch(request);
+    if (response && response.ok && response.type === "basic") {
+      await cache.put(request, response.clone());
+    }
+    return response;
+  });
 
-      return cached || network;
-    })
-  );
+  // Keep the background refresh alive even when a cached response is returned.
+  event.waitUntil(updatePromise.then(() => undefined).catch(() => undefined));
+  event.respondWith(cachePromise.then(async cache => {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    try {
+      return await updatePromise;
+    } catch {
+      return Response.error();
+    }
+  }));
 });
