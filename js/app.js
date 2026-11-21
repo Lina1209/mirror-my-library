@@ -4,6 +4,7 @@ import { extension, extractMetadata, safeHTML, fb2ToHTML } from "./parsers.js";
 const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
+  libraryLayout: localStorage.getItem("mirror-library-layout") === "cards" ? "cards" : "list",
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
   pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
@@ -65,6 +66,11 @@ function renderBooks() {
   $("favoriteCount").textContent = state.books.filter(b => b.favorite).length;
 
   const grid = $("bookGrid");
+  grid.classList.toggle("book-list-view", state.libraryLayout === "list");
+  $("cardsViewBtn")?.classList.toggle("active", state.libraryLayout === "cards");
+  $("listViewBtn")?.classList.toggle("active", state.libraryLayout === "list");
+  $("cardsViewBtn")?.setAttribute("aria-pressed", String(state.libraryLayout === "cards"));
+  $("listViewBtn")?.setAttribute("aria-pressed", String(state.libraryLayout === "list"));
   grid.replaceChildren();
   filtered.forEach(book => {
     const card = document.createElement("article");
@@ -100,6 +106,16 @@ function renderBooks() {
     more.textContent = "···";
     more.title = "Действия";
     more.onclick = () => showDetails(book);
+    const canOpenInStudio = ["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(book.ext);
+    if (canOpenInStudio) {
+      const studio = document.createElement("button");
+      studio.className = "mini-btn studio-shortcut";
+      studio.textContent = "✎";
+      studio.title = "Открыть в студии документов";
+      studio.setAttribute("aria-label", "Открыть " + book.title + " в студии документов");
+      studio.onclick = event => { event.stopPropagation(); sendBookToStudio(book.id); };
+      actions.append(studio);
+    }
     actions.append(favorite, more);
     row.append(title, actions);
 
@@ -126,6 +142,30 @@ function renderBooks() {
     grid.append(card);
   });
   $("emptyState").classList.toggle("hidden", filtered.length > 0);
+}
+
+async function sendBookToStudio(bookId) {
+  const book = await getOne("books", bookId);
+  if (!book) return;
+  const supported = ["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"];
+  if (!supported.includes(book.ext)) {
+    toast("Этот формат можно читать, но перенос в редактор пока не поддерживается.");
+    return;
+  }
+  if (typeof window.openMirrorBookInStudio !== "function") {
+    toast("Студия документов ещё загружается. Попробуйте через мгновение.");
+    return;
+  }
+  const mime = book.type || (book.ext === "pdf" ? "application/pdf" : book.ext === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : book.ext === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : book.ext === "csv" ? "text/csv" : `image/${book.ext === "jpg" ? "jpeg" : book.ext}`);
+  const file = new File([book.data], book.name || book.title || `document.${book.ext}`, { type: mime });
+  try {
+    $("detailsDialog")?.close();
+    await window.openMirrorBookInStudio(file);
+    toast("Документ открыт в студии. Оригинал сохранён в библиотеке.");
+  } catch (error) {
+    console.error("Open in Document Studio:", error);
+    toast("Не удалось передать файл в студию: " + (error?.message || "ошибка"));
+  }
 }
 
 function showDetails(book) {
@@ -172,7 +212,16 @@ function showDetails(book) {
     toast("Книга удалена");
   };
 
-  actions.append(open, download, del);
+  const canOpenInStudio = ["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(book.ext);
+  if (canOpenInStudio) {
+    const studio = document.createElement("button");
+    studio.className = "secondary";
+    studio.textContent = "✎ Открыть в студии";
+    studio.onclick = () => sendBookToStudio(book.id);
+    actions.append(open, studio, download, del);
+  } else {
+    actions.append(open, download, del);
+  }
   body.append(heading, info, actions, downloadHint);
   $("detailsDialog").showModal();
   setTimeout(() => {
@@ -1157,6 +1206,16 @@ $("fileInput").onchange = event => {
   event.target.value = "";
 };
 $("searchInput").oninput = renderBooks;
+$("cardsViewBtn")?.addEventListener("click", () => {
+  state.libraryLayout = "cards";
+  localStorage.setItem("mirror-library-layout", "cards");
+  renderBooks();
+});
+$("listViewBtn")?.addEventListener("click", () => {
+  state.libraryLayout = "list";
+  localStorage.setItem("mirror-library-layout", "list");
+  renderBooks();
+});
 
 document.querySelectorAll(".nav-item[data-filter]").forEach(button => {
   button.onclick = () => {
