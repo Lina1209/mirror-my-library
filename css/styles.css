@@ -783,3 +783,10 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 
 .reader-font-quick{padding:8px 9px;min-width:38px;white-space:nowrap}
 @media(max-width:600px){.reader-toolbar{flex-wrap:wrap}.reader-font-quick{padding:7px 8px;min-width:36px}.reader-book-title{min-width:90px}}
+
+
+.reader-empty-state{min-height:48vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px 18px;color:var(--muted)}
+.reader-empty-state h2{font:500 26px Georgia,serif;color:var(--ink);margin:12px 0 6px}
+.reader-empty-state p{max-width:320px;line-height:1.6;margin:0 0 18px}
+.reader-empty-icon{font-size:42px;opacity:.75}
+#readerNavBtn{white-space:nowrap}
