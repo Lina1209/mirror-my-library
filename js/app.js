@@ -1191,6 +1191,8 @@ async function openBook(bookId) {
 
   $("libraryView").classList.add("hidden");
   $("readerView").classList.remove("hidden");
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  $("readerNavBtn")?.classList.add("active");
   $("readerBookTitle").textContent = book.title;
   $("readerMeta").replaceChildren(document.createTextNode(`${book.author || "Автор не указан"} · ${book.ext.toUpperCase()}`));
   $("readerContent").textContent = "Загружаем книгу…";
@@ -1252,6 +1254,8 @@ $("backBtn").onclick = async () => {
   state.activeBook = null;
   $("readerView").classList.add("hidden");
   $("libraryView").classList.remove("hidden");
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  $("libraryNavBtn")?.classList.add("active");
   await refresh();
 };
 $("fontUp").onclick = () => {
@@ -1327,6 +1331,24 @@ $("listViewBtn")?.addEventListener("click", () => {
   state.libraryLayout = "list";
   localStorage.setItem("mirror-library-layout", "list");
   renderBooks();
+});
+
+function showReaderHome() {
+  if (state.activeBook) return;
+  $("libraryView").classList.add("hidden");
+  $("readerView").classList.remove("hidden");
+  $("readerBookTitle").textContent = "Читалка";
+  $("readerMeta").textContent = "Ваша постоянная читалка";
+  $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>';
+  $("prevBtn").disabled = true;
+  $("nextBtn").disabled = true;
+  $("pageStatus").textContent = "Готово к чтению";
+  $("readerChooseBookBtn").onclick = () => $("backBtn").click();
+}
+$("readerNavBtn")?.addEventListener("click", () => {
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  $("readerNavBtn").classList.add("active");
+  showReaderHome();
 });
 
 document.querySelectorAll(".nav-item[data-filter]").forEach(button => {
