@@ -254,7 +254,7 @@ async function recognizePDF(file,worker){
   }
 }
 function safeImportedStyle(value){
-  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","color","background-color","margin-top","margin-bottom","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
+  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
   const safe=[];
   String(value||"").split(";").forEach(part=>{
     const i=part.indexOf(":");if(i<1)return;
@@ -265,8 +265,9 @@ function safeImportedStyle(value){
     if(key==="font-weight"&&!/^(normal|bold|[1-9]00)$/i.test(val))return;
     if(key==="font-style"&&!/^(normal|italic|oblique)$/i.test(val))return;
     if(key==="table-layout"&&!/^(fixed|auto)$/i.test(val))return;
+    if(key==="line-height"&&!/^(normal|\\d+(?:\\.\\d+)?(?:px|pt|%)?)$/i.test(val))return;
     if(["color","background-color","border-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
-    if(["width","height","min-height","margin-top","margin-bottom","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    if(["width","height","min-height","margin-top","margin-right","margin-bottom","margin-left","text-indent","letter-spacing","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
     if(key==="border-style"&&!/^(none|solid|double|dotted|dashed|groove|ridge|inset|outset)$/i.test(val))return;
     safe.push(key+":"+val);
   });
@@ -627,7 +628,7 @@ function htmlRuns(node,TextRun,ImageRun){
   }
   function walk(n,style={}){
     if(n.nodeType===Node.TEXT_NODE){
-      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,underline:style.underline?{}:undefined,font:style.font||undefined,size:style.size||undefined,color:style.color||undefined,highlight:style.highlight||undefined}));
+      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,underline:style.underline?{}:undefined,strike:!!style.strike,superScript:!!style.superScript,subScript:!!style.subScript,font:style.font||undefined,size:style.size||undefined,color:style.color||undefined,highlight:style.highlight||undefined}));
       return;
     }
     if(n.nodeType!==Node.ELEMENT_NODE)return;
@@ -647,8 +648,10 @@ function htmlRuns(node,TextRun,ImageRun){
     const next={bold:style.bold||["B","STRONG"].includes(n.tagName)||css.fontWeight==="bold"||Number(css.fontWeight)>=600,
       italics:style.italics||["I","EM"].includes(n.tagName)||css.fontStyle==="italic",
       underline:style.underline||n.tagName==="U"||(css.textDecoration||"").includes("underline"),
+      strike:style.strike||n.tagName==="S"||n.tagName==="DEL"||(css.textDecoration||"").includes("line-through"),
+      superScript:style.superScript||n.tagName==="SUP",subScript:style.subScript||n.tagName==="SUB",
       font:(css.fontFamily||n.getAttribute?.("face"))?.split(",")[0]?.replace(/["']/g,"")||style.font,
-      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),color:color||style.color,highlight:bg||style.highlight};
+      size:px?Math.max(1,Math.min(144,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),color:color||style.color,highlight:bg||style.highlight};
     n.childNodes.forEach(child=>walk(child,next));
     if(n.tagName==="BR")runs.push(new TextRun({text:"\n"}));
   }
@@ -735,7 +738,17 @@ async function exportDOCX(){
       if(node.tagName==="LI")opts.bullet={indent:360};
       if(node.tagName==="BLOCKQUOTE")opts.indent={left:360};
       const marginBottom=parseFloat(node.style?.marginBottom||"");
-      if(Number.isFinite(marginBottom)&&marginBottom>0)opts.spacing={after:Math.min(1200,Math.round(marginBottom*15))};
+      const marginTop=parseFloat(node.style?.marginTop||"");
+      const indentLeft=parseFloat(node.style?.marginLeft||"");
+      const indentRight=parseFloat(node.style?.marginRight||"");
+      const firstLine=parseFloat(node.style?.textIndent||"");
+      const lineHeight=parseFloat(node.style?.lineHeight||"");
+      const spacing={};
+      if(Number.isFinite(marginBottom)&&marginBottom>0)spacing.after=Math.min(1200,Math.round(marginBottom*15));
+      if(Number.isFinite(marginTop)&&marginTop>0)spacing.before=Math.min(1200,Math.round(marginTop*15));
+      if(Number.isFinite(lineHeight)&&lineHeight>0)spacing.line=Math.min(2400,Math.max(120,Math.round(lineHeight*240)));
+      if(Object.keys(spacing).length)opts.spacing=spacing;
+      if((Number.isFinite(indentLeft)&&indentLeft>0)||(Number.isFinite(indentRight)&&indentRight>0)||(Number.isFinite(firstLine)&&firstLine!==0))opts.indent={...(indentLeft>0?{left:Math.round(indentLeft*15)}:{}),...(indentRight>0?{right:Math.round(indentRight*15)}:{}),...(firstLine!==0?{firstLine:Math.round(firstLine*15)}:{})};
       children.push(new Paragraph(opts));
     }else [...node.children].forEach(addBlock);
   }
