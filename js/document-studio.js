@@ -296,13 +296,14 @@ function sanitizeImportedHTML(markup){
     if(["TD","TH"].includes(node.tagName)){
       ["rowspan","colspan"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isInteger(n)&&n>=1&&n<=100)node.setAttribute(key,String(n));});
     }
-    const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
+    const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-sheet-name","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
     attrs.forEach(attr=>{
       const key=attr.name.toLowerCase(),value=String(attr.value||"").trim();
       if(!safeDataAttributes.has(key))return;
       if(["data-docx-table","data-docx-header","data-docx-cant-split","data-page-break"].includes(key)){if(value==="true")node.setAttribute(key,"true");}
       else if(key==="data-docx-width-type"&&["pct","dxa"].includes(value))node.setAttribute(key,value);
       else if(key==="data-docx-height-rule"&&["exact","atLeast","auto"].includes(value))node.setAttribute(key,value);
+      else if(key==="data-sheet-name"&&value.length<=100)node.setAttribute(key,value);
       else if((["data-docx-width","data-docx-height"].includes(key)||key.startsWith("data-page-"))&&/^\d+(?:\.\d+)?$/.test(value))node.setAttribute(key,value);
     });
   });
@@ -458,18 +459,29 @@ async function loadSheetJS(){
 async function importSpreadsheet(file){
   await loadSheetJS();
   const workbook=window.XLSX.read(await file.arrayBuffer(),{type:"array"});
-  const first=workbook.SheetNames[0];
-  if(!first) throw new Error("В файле не найден лист.");
-  const rows=window.XLSX.utils.sheet_to_json(workbook.Sheets[first],{header:1,raw:false,defval:""});
-  if(!rows.length) throw new Error("Первый лист таблицы пуст.");
-  const table=document.createElement("table");table.className="studio-data-table";
-  rows.forEach((row,index)=>{
-    const tr=document.createElement("tr");
-    row.forEach(value=>{const cell=document.createElement(index===0?"th":"td");cell.textContent=String(value??"");tr.append(cell);});
-    table.append(tr);
+  if(!workbook.SheetNames.length)throw new Error("В файле не найдено листов.");
+  const fragment=document.createDocumentFragment();
+  let imported=0,empty=0;
+  workbook.SheetNames.forEach((name,index)=>{
+    const sheet=workbook.Sheets[name];
+    const rows=window.XLSX.utils.sheet_to_json(sheet,{header:1,raw:false,defval:"",blankrows:false});
+    if(!rows.length){empty++;return;}
+    const heading=document.createElement("h3");heading.textContent=name;fragment.append(heading);
+    const table=document.createElement("table");table.className="studio-data-table";
+    table.dataset.sheetName=name;table.setAttribute("aria-label",name);
+    rows.forEach((row,rowIndex)=>{
+      const tr=document.createElement("tr");
+      row.forEach(value=>{
+        const cell=document.createElement(rowIndex===0?"th":"td");
+        cell.textContent=String(value??"");tr.append(cell);
+      });
+      table.append(tr);
+    });
+    fragment.append(table);imported++;
   });
-  editor.replaceChildren(table);state.format="sheet";
-  say("Загружен лист «"+first+"». Можно редактировать ячейки прямо в таблице. Другие листы исходной книги не изменяются и не включены в редактор.");
+  if(!imported)throw new Error("Все листы книги пусты.");
+  editor.replaceChildren(fragment);state.format="sheet";
+  say("Загружено листов: "+imported+". Можно редактировать каждую таблицу. При экспорте они снова станут отдельными листами Excel."+(empty?" Пустых листов пропущено: "+empty+".":""));
   setProgress(100);
 }
 async function recognize(){
