@@ -705,3 +705,12 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
   .book-list-view .progress-label{grid-column:2 / 4;grid-row:4;text-align:left}
   .book-list-view .progress-track{grid-column:2 / 4;grid-row:3}
 }
+
+/* Mobile-friendly book and PDF viewing */
+.reader-content:has(.pdf-page-wrap){max-width:100%;width:100%;overflow:auto;padding-left:8px;padding-right:8px;}
+.pdf-reader-zoom{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+.pdf-reader-zoom strong{min-width:46px;text-align:center;font-variant-numeric:tabular-nums;}
+.pdf-reader-zoom button{min-width:40px;min-height:38px;touch-action:manipulation;}
+.reader-content img.fb2-image{display:block;max-width:min(100%,680px);max-height:70vh;width:auto;height:auto;object-fit:contain;margin:18px auto;border-radius:5px;}
+.reader-content .fb2-image-placeholder{display:block;text-align:center;color:var(--muted);padding:12px;border:1px dashed var(--line);}
+@media(max-width:600px){.pdf-reader-zoom{gap:5px;font-size:12px}.pdf-reader-zoom button{min-width:42px;min-height:42px}.reader-content:has(.pdf-page-wrap){padding:0 4px 16px;}}
