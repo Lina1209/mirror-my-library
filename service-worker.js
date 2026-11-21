@@ -9,6 +9,7 @@ const CORE = [
   "./js/db.js",
   "./js/parsers.js",
   "./manifest.webmanifest",
+  "./icons/icon.svg",
 ];
 
 self.addEventListener("install", event => {
