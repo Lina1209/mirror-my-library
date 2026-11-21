@@ -767,7 +767,7 @@ function renderPDFImageObjects(){
     frame.onpointerup=finish;frame.onpointercancel=finish;frame.onlostpointercapture=finish;
   });
 }
-async async function undoPDFAnnotation(){
+async function undoPDFAnnotation(){
   const history=state.pdfUndo[state.pdfPage]||[];
   if(!history.length||!state.pdfOverlay){toast("Пока нечего отменять");return;}
   const previous=history.pop();
