@@ -1226,7 +1226,7 @@ ttsVoiceSelect?.addEventListener("change", () => localStorage.setItem("mirror-tt
 
 function loadTTSVoices() {
   if (!("speechSynthesis" in window) || !ttsVoiceSelect) return;
-  tts.voices = window.speechSynthesis.getVoices();
+  tts.voices = window.speechSynthesis.getVoices() || [];
   const previous = localStorage.getItem("mirror-tts-voice") || ttsVoiceSelect.value;
   ttsVoiceSelect.replaceChildren(new Option("Автоматический голос", ""));
   tts.voices.forEach(voice => {
@@ -1234,6 +1234,8 @@ function loadTTSVoices() {
     ttsVoiceSelect.add(option);
   });
   if (previous && tts.voices.some(voice => voice.voiceURI === previous)) ttsVoiceSelect.value = previous;
+  const status=$("ttsStatus");
+  if(status)status.textContent=tts.voices.length?("Голоса доступны: "+tts.voices.length):"Системные голоса не обнаружены";
 }
 if ("speechSynthesis" in window) {
   loadTTSVoices();
@@ -1341,9 +1343,10 @@ function updateTTSButtons() {
   ttsPauseButton.disabled = !speaking && !paused && !hasQueue;
   ttsStopButton.disabled = !speaking && !paused && !hasQueue;
   ttsPauseButton.textContent = paused ? "▶ Продолжить" : "Ⅱ Пауза";
-  ttsPlayButton.textContent = (speaking || hasQueue) && !paused ? "🔊 Читает…" : "🔊 Читать";\n  const status=$("ttsStatus");if(status){status.textContent=paused?"Пауза":speaking?"Идёт озвучивание":tts.voices.length?"Голос готов":"Нет списка голосов";}
+  ttsPlayButton.textContent = (speaking || hasQueue) && !paused ? "🔊 Читает…" : "🔊 Читать";
+  const status=$("ttsStatus");
+  if(status)status.textContent=paused?"Пауза":speaking?"Идёт озвучивание":tts.voices.length?"Голос готов":"Нет списка голосов";
 }
-
 function stopBookSpeech() {
   if (!("speechSynthesis" in window)) return;
   tts.token++;
