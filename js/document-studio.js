@@ -234,10 +234,9 @@ async function recognizePDF(file,worker){
   pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
   for(let n=1;n<=pdf.numPages;n++){
-    say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем исходный вид и извлекаем текст…");
+    say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем страницу и восстанавливаем текстовые области…");
     const page=await pdf.getPage(n);
     const textContent=await page.getTextContent();
-    // Восстанавливаем строки по вертикальным координатам PDF, а не склеиваем всю страницу в одну строку.
     const textItems=textContent.items.filter(item=>typeof item.str==="string"&&item.str.trim());
     const lines=[];
     textItems.forEach(item=>{
@@ -249,7 +248,6 @@ async function recognizePDF(file,worker){
     lines.sort((x,y)=>y.y-x.y);
     let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\s+/g," ").trim()).filter(Boolean).join("\n").trim();
 
-    // Встраиваем изображение исходной страницы: иллюстрации, таблицы и расположение остаются видимыми в редакции.
     const base=page.getViewport({scale:1});
     const previewScale=Math.min(1.45,1800/Math.max(base.width,base.height));
     const previewViewport=page.getViewport({scale:previewScale});
@@ -257,14 +255,10 @@ async function recognizePDF(file,worker){
     canvas.width=Math.ceil(previewViewport.width);canvas.height=Math.ceil(previewViewport.height);
     const ctx=canvas.getContext("2d",{willReadFrequently:true});
     await page.render({canvasContext:ctx,viewport:previewViewport}).promise;
-    const pageImage=document.createElement("img");
-    pageImage.className="studio-source-page-image";
-    pageImage.alt="Оригинальный вид страницы "+n+" из PDF";
-    pageImage.src=canvas.toDataURL("image/jpeg",0.86);
-    canvas.width=canvas.height=0;
 
+    let ocrLines=[];
     if(extracted.length<25){
-      say("Страница "+n+" из "+pdf.numPages+": распознаём текст по изображению…");
+      say("Страница "+n+" из "+pdf.numPages+": распознаём текст и координаты строк…");
       const ocrCanvas=document.createElement("canvas");
       const ocrScale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
       const ocrViewport=page.getViewport({scale:ocrScale});
@@ -272,29 +266,89 @@ async function recognizePDF(file,worker){
       await page.render({canvasContext:ocrCanvas.getContext("2d",{willReadFrequently:true}),viewport:ocrViewport}).promise;
       const recognized=await worker.recognize(ocrCanvas);
       extracted=recognized.data.text||"";
+      ocrLines=(recognized.data.lines||[]).filter(line=>String(line.text||"").trim()&&line.bbox&&
+        [line.bbox.x0,line.bbox.y0,line.bbox.x1,line.bbox.y1].every(Number.isFinite));
       ocrCanvas.width=ocrCanvas.height=0;
     }
 
     const pageBlock=document.createElement("div");
     pageBlock.className="studio-source-page";
     const heading=document.createElement("h2");heading.textContent="Страница "+n;
-    const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
-    const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
-    const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
-    textBlock.textContent=extracted||"[Текст не распознан]";
-    pageBlock.append(heading,imageCaption,pageImage,textCaption,textBlock);
-    editor.append(pageBlock);
+    pageBlock.append(heading);
+
+    if(ocrLines.length){
+      // Первая реконструкция: закрываем распознанные строки на копии фона и размещаем редактируемый текст поверх по координатам OCR.
+      const layoutScale=Math.min(1,700/previewViewport.width);
+      const pageWidth=Math.round(previewViewport.width*layoutScale);
+      const pageHeight=Math.round(previewViewport.height*layoutScale);
+      const sx=previewViewport.width/Math.max(1,ocrViewport.width)*layoutScale;
+      const sy=previewViewport.height/Math.max(1,ocrViewport.height)*layoutScale;
+      ctx.fillStyle="#fff";
+      ocrLines.forEach(line=>{
+        const b=line.bbox;
+        const x=Math.max(0,b.x0*sx),y=Math.max(0,b.y0*sy);
+        const w=Math.max(1,(b.x1-b.x0)*sx),h=Math.max(1,(b.y1-b.y0)*sy);
+        const pad=Math.max(1,h*.08);
+        ctx.fillRect(Math.max(0,x-pad),Math.max(0,y-pad),Math.min(pageWidth/ layoutScale-x+pad,w+pad*2),h+pad*2);
+      });
+      const pageImage=document.createElement("img");
+      pageImage.className="studio-source-page-image";
+      pageImage.alt="Фон страницы "+n+" с очищенными областями текста";
+      pageImage.src=canvas.toDataURL("image/jpeg",0.94);
+      pageImage.style.cssText="position:absolute;left:0;top:0;width:100%;height:100%;margin:0;object-fit:fill;";
+      const layer=document.createElement("div");
+      layer.className="studio-reconstructed-text-layer";
+      layer.style.cssText="position:absolute;left:0;top:0;width:100%;height:100%;";
+      ocrLines.forEach(line=>{
+        const b=line.bbox;
+        const x=Math.max(0,b.x0*sx),y=Math.max(0,b.y0*sy);
+        const w=Math.max(2,(b.x1-b.x0)*sx),h=Math.max(3,(b.y1-b.y0)*sy);
+        const span=document.createElement("span");
+        span.className="studio-reconstructed-line";
+        span.contentEditable="true";
+        span.spellcheck=true;
+        span.textContent=String(line.text||"").trim();
+        span.style.cssText="position:absolute;left:"+x.toFixed(2)+"px;top:"+y.toFixed(2)+"px;width:"+w.toFixed(2)+"px;height:"+Math.max(h*1.2, h+1).toFixed(2)+"px;font-family:Georgia,serif;font-size:"+Math.max(7,Math.min(32,h*.82)).toFixed(2)+"px;line-height:1;white-space:pre;overflow:hidden;color:#202020;";
+        layer.append(span);
+      });
+      pageBlock.classList.add("studio-reconstructed-page");
+      pageBlock.dataset.pageWidth=String(pageWidth);
+      pageBlock.dataset.pageHeight=String(pageHeight);
+      pageBlock.style.cssText="position:relative;width:"+pageWidth+"px;height:"+pageHeight+"px;max-width:100%;margin:18px auto 28px;padding:0;border:1px solid #ddd;overflow:hidden;background:#fff;box-sizing:border-box;";
+      pageBlock.append(pageImage,layer);
+      const note=document.createElement("p");
+      note.className="studio-source-caption";
+      note.textContent="Восстановленный макет: распознанные строки можно исправлять прямо на странице. Иллюстрации и фон сохранены; точность зависит от качества скана.";
+      editor.append(pageBlock,note);
+    }else{
+      const pageImage=document.createElement("img");
+      pageImage.className="studio-source-page-image";
+      pageImage.alt="Оригинальный вид страницы "+n+" из PDF";
+      pageImage.src=canvas.toDataURL("image/jpeg",0.92);
+      const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
+      const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
+      const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
+      textBlock.textContent=extracted||"[Текст не распознан]";
+      pageBlock.append(imageCaption,pageImage,textCaption,textBlock);
+      editor.append(pageBlock);
+    }
+    canvas.width=canvas.height=0;
     setProgress(n/pdf.numPages*100);
   }
 }
 function safeImportedStyle(value){
-  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
+  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout","position","left","top","z-index","white-space","overflow","object-fit"]);
   const safe=[];
   String(value||"").split(";").forEach(part=>{
     const i=part.indexOf(":");if(i<1)return;
     const key=part.slice(0,i).trim().toLowerCase(),val=part.slice(i+1).trim();
     if(!allowed.has(key)||!val||/url\s*\(|expression|javascript:/i.test(val))return;
     if(key==="text-align"&&!/^(left|right|center|justify)$/i.test(val))return;
+    if(key==="position"&&!/^(absolute|relative|static)$/i.test(val))return;
+    if(key==="white-space"&&!/^(normal|pre|pre-wrap|nowrap)$/i.test(val))return;
+    if(key==="overflow"&&!/^(hidden|visible|auto)$/i.test(val))return;
+    if(key==="object-fit"&&!/^(contain|cover|fill)$/i.test(val))return;
+    if(key==="z-index"&&!/^-?\d{1,4}$/.test(val))return;
     if(key==="vertical-align"&&!/^(top|middle|bottom|baseline)$/i.test(val))return;
     if(key==="font-weight"&&!/^(normal|bold|[1-9]00)$/i.test(val))return;
     if(key==="font-style"&&!/^(normal|italic|oblique)$/i.test(val))return;
@@ -317,7 +371,7 @@ function sanitizeImportedHTML(markup){
     const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
     if(style)node.setAttribute("style",style);
     const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
-    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
+    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-reconstructed-page","studio-reconstructed-text-layer","studio-reconstructed-line","studio-page-break","studio-data-table"]);
     const keptClasses=classValue.split(/\s+/).filter(name=>safeClasses.has(name));
     if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
