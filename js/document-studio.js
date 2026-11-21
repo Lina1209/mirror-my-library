@@ -1,7 +1,7 @@
 import { put, getAll } from "./db.js";
 
 const $ = id => document.getElementById(id);
-const state = { sourceName:"", sourceType:"", busy:false, format:"text" };
+const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null };
 const editor = $("studioEditor");
 const status = $("studioStatus");
 const progress = $("studioProgress");
@@ -41,7 +41,8 @@ async function previewRenderPDF(){
 async function openStudioPreview(file){
   if(!file)return;
   studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
-  previewDownload.disabled=false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
+  previewDownload.disabled=false;
+  if (!state.sourceBookId) $("studioSaveSourceToLibrary").disabled = false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
   const ext=extOf(file),type=file.type||"";
   try{
     if(ext==="pdf"||type==="application/pdf"){await previewLoadPDF(file);return;}
@@ -116,7 +117,7 @@ async function openStudioPreview(file){
 }
 
 // Accept a book already stored in the local library and open it in the separate editor workspace.
-window.openMirrorBookInStudio = async function(file) {
+window.openMirrorBookInStudio = async function(file, bookId = null) {
   if (!(file instanceof File)) throw new TypeError("Не удалось получить файл из библиотеки.");
   const assignFile = input => {
     if (!input) return;
@@ -129,6 +130,9 @@ window.openMirrorBookInStudio = async function(file) {
   assignFile($("studioPreviewFile"));
   state.sourceName = file.name;
   state.sourceType = file.type || "";
+  state.sourceBookId = bookId;
+  $("studioSaveSourceToLibrary").disabled = Boolean(bookId);
+  $("studioSaveSourceToLibrary").textContent = bookId ? "✓ Уже в библиотеке" : "＋ В библиотеку";
   if (fileInput) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
   await openStudioPreview(file);
   previewDownload.disabled = false;
@@ -137,9 +141,31 @@ window.openMirrorBookInStudio = async function(file) {
 };
 
 $("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
-$("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+$("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file){state.sourceBookId=null;state.sourceName=file.name;state.sourceType=file.type||"";$("studioSaveSourceToLibrary").disabled=false;$("studioSaveSourceToLibrary").textContent="＋ В библиотеку";openStudioPreview(file);}});
 $("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
 previewDownload?.addEventListener("click",previewDownloadOriginal);
+async function saveStudioSourceToLibrary() {
+  const file = studioPreview.file;
+  if (!file) { say("Сначала откройте документ для просмотра."); return; }
+  if (state.sourceBookId) { say("Этот оригинал уже находится в библиотеке."); return; }
+  try {
+    const ext = extOf(file);
+    const id = globalThis.crypto?.randomUUID?.() || ("book-" + Date.now() + "-" + Math.random().toString(36).slice(2));
+    await put("books", {
+      id, name:file.name, title:file.name.replace(/\\.[^.]+$/, "") || "Без названия",
+      author:"Автор не указан", ext, type:file.type || "", data:await file.arrayBuffer(),
+      addedAt:Date.now(), favorite:false, sourceName:file.name, sourceKind:"document-studio-original"
+    });
+    state.sourceBookId = id;
+    $("studioSaveSourceToLibrary").disabled = true;
+    $("studioSaveSourceToLibrary").textContent = "✓ Сохранено в библиотеке";
+    await window.refreshMirrorLibrary?.();
+    say("Оригинал добавлен в библиотеку. Его можно будет открыть оттуда снова; исходный файл не изменён.");
+  } catch (error) {
+    say("Не удалось сохранить файл в библиотеку: " + error.message);
+  }
+}
+$("studioSaveSourceToLibrary")?.addEventListener("click",saveStudioSourceToLibrary);
 $("studioPreviewPrev")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page>1){studioPreview.page--;previewRenderPDF();}});
 $("studioPreviewNext")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page<studioPreview.pdf.numPages){studioPreview.page++;previewRenderPDF();}});
 previewZoom?.addEventListener("change",()=>{studioPreview.zoom=previewZoom.value;if(studioPreview.pdf)previewRenderPDF();else{const img=previewSurface.querySelector("img");if(img)img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%";}});
