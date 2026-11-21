@@ -594,7 +594,7 @@ async function openEPUB(book, progress) {
     content.replaceChildren();
     state.epub = window.ePub(book.data.slice ? book.data.slice(0) : book.data);
     state.rendition = state.epub.renderTo(content, {
-      width: "100%", height: "65vh", flow: "paginated",
+      width: "100%", height: "100%", flow: "paginated",
       spread: "none", allowScriptedContent: false
     });
     state.rendition.on("relocated", location => {
@@ -715,7 +715,8 @@ async function renderPDFPage() {
   if (!state.pdf) return;
   const page = await state.pdf.getPage(state.pdfPage);
   const base = page.getViewport({ scale: 1 });
-  const availableWidth = Math.max(280, Math.min(760, window.innerWidth - 64));
+  const readerContent = $("readerContent");
+  const availableWidth = Math.max(220, Math.min(760, readerContent.clientWidth - 32));
   const scale = Math.min(1.5, availableWidth / base.width) * Math.max(0.65, Math.min(3, state.pdfZoom || 1));
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
@@ -1382,6 +1383,8 @@ async function openBook(bookId) {
   $("readerContent").style.fontSize = `${state.fontSize}px`;
 
   const progress = await getOne("progress", bookId);
+  // Wait for the visible reader frame to receive its final mobile/desktop-mode dimensions.
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   try {
     if (book.ext === "epub") await openEPUB(book, progress);
     else if (book.ext === "pdf") await openPDF(book, progress);
