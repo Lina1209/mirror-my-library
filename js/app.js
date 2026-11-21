@@ -540,47 +540,62 @@ async function persistPDFAnnotations(){
   state.activeBook.pdfAnnotations=state.pdfAnnotations;
   await put("books",state.activeBook);
 }
-function attachPDFAnnotationEvents(canvas){
-  let drawing=false,last=null,startPoint=null;
+function attachPDFAnnotationEvents(canvas) {
+  let drawing=false,last=null,startPoint=null,baseline=null;
+  const ratio=Math.min(window.devicePixelRatio||1,2);
   const point=event=>{
-    const rect=canvas.getBoundingClientRect(),ratio=Math.min(window.devicePixelRatio||1,2);
-    return {x:(event.clientX-rect.left)*canvas.width/rect.width/ratio,
-      y:(event.clientY-rect.top)*canvas.height/rect.height/ratio};
+    const rect=canvas.getBoundingClientRect();
+    return {x:(event.clientX-rect.left)*canvas.width/rect.width/ratio,y:(event.clientY-rect.top)*canvas.height/rect.height/ratio};
+  };
+  const style=()=>({color:$("pdfDrawColor")?.value||"#d13d3d",width:Math.max(1,Number($("pdfDrawWidth")?.value)||3)});
+  const drawShape=(ctx,tool,from,to)=>{
+    const {color,width}=style(),dx=to.x-from.x,dy=to.y-from.y;
+    ctx.save();ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=width;
+    if(tool==="cover"){ctx.fillStyle="#fff";ctx.fillRect(from.x,from.y,dx,dy);}
+    else if(tool==="highlight"){ctx.strokeStyle="rgba(255,224,55,.42)";ctx.lineWidth=Math.max(12,width*5);ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();}
+    else if(tool==="line"||tool==="underline"||tool==="strike"){
+      const y=tool==="underline"?Math.max(from.y,to.y):tool==="strike"?(from.y+to.y)/2:to.y;
+      ctx.beginPath();ctx.moveTo(from.x,tool==="line"?from.y:y);ctx.lineTo(to.x,tool==="line"?to.y:y);ctx.stroke();
+    }else if(tool==="rect"){ctx.strokeRect(from.x,from.y,dx,dy);}
+    else if(tool==="ellipse"){ctx.beginPath();ctx.ellipse(from.x+dx/2,from.y+dy/2,Math.abs(dx/2),Math.abs(dy/2),0,0,Math.PI*2);ctx.stroke();}
+    else if(tool==="arrow"){
+      const angle=Math.atan2(dy,dx),head=Math.max(10,width*4);
+      ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(to.x,to.y);ctx.lineTo(to.x-head*Math.cos(angle-Math.PI/6),to.y-head*Math.sin(angle-Math.PI/6));ctx.lineTo(to.x-head*Math.cos(angle+Math.PI/6),to.y-head*Math.sin(angle+Math.PI/6));ctx.closePath();ctx.fill();
+    }
+    ctx.restore();
   };
   canvas.onpointerdown=event=>{
     if(state.pdfEditTool==="view")return;
     event.preventDefault();canvas.setPointerCapture?.(event.pointerId);snapshotPDFAnnotation();
+    startPoint=point(event);last=startPoint;drawing=true;
     if(state.pdfEditTool==="text"){
-      const value=prompt("Введите текст для добавления в PDF:");
-      if(value&&value.trim()){
-        const ctx=canvas.getContext("2d"),p=point(event);
-        const size=Math.max(8,Math.min(72,Number($("pdfTextSize")?.value)||18));
-        const color=$("pdfTextColor")?.value||"#202020";
-        ctx.save();ctx.font=size+"px Arial";ctx.fillStyle=color;ctx.textBaseline="top";
-        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*(size*1.25)));
-        ctx.restore();persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
+      drawing=false;const value=prompt("Введите текст для добавления в PDF:");
+      if(value?.trim()){
+        const ctx=canvas.getContext("2d"),p=startPoint,size=Math.max(8,Math.min(72,Number($("pdfTextSize")?.value)||18));
+        ctx.save();ctx.setTransform(ratio,0,0,ratio,0,0);ctx.font=size+"px Arial";ctx.fillStyle=$("pdfTextColor")?.value||style().color;ctx.textBaseline="top";
+        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*(size*1.25)));ctx.restore();
+        persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
       }
       return;
     }
-    drawing=true;last=point(event);startPoint=last;
+    baseline=canvas.getContext("2d").getImageData(0,0,canvas.width,canvas.height);
   };
   canvas.onpointermove=event=>{
     if(!drawing||!last)return;event.preventDefault();
-    const next=point(event),ctx=canvas.getContext("2d");
-    ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
-    if(state.pdfEditTool==="cover"){
-      ctx.fillStyle="#ffffff";ctx.fillRect(startPoint.x,startPoint.y,next.x-startPoint.x,next.y-startPoint.y);
-    }else if(state.pdfEditTool==="eraser"){
-      ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
-    }else if(state.pdfEditTool==="highlight"){
-      ctx.strokeStyle="rgba(255,224,55,.38)";ctx.lineWidth=20;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+    const next=point(event),ctx=canvas.getContext("2d"),tool=state.pdfEditTool;
+    if(["line","arrow","rect","ellipse","underline","strike","cover","highlight"].includes(tool)){
+      ctx.putImageData(baseline,0,0);ctx.setTransform(ratio,0,0,ratio,0,0);drawShape(ctx,tool,startPoint,next);
     }else{
-      ctx.strokeStyle="#d13d3d";ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+      ctx.save();ctx.setTransform(ratio,0,0,ratio,0,0);
+      if(tool==="eraser"){ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;}
+      else{ctx.strokeStyle=style().color;ctx.lineWidth=style().width;}
+      ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();ctx.restore();
     }
-    ctx.restore();last=next;
+    last=next;
   };
   const finish=()=>{
-    if(!drawing)return;drawing=false;last=null;startPoint=null;
+    if(!drawing)return;drawing=false;last=null;startPoint=null;baseline=null;
     persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
   };
   canvas.onpointerup=finish;canvas.onpointercancel=finish;canvas.onlostpointercapture=finish;
