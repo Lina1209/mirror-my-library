@@ -1250,14 +1250,14 @@ if ("speechSynthesis" in window) {
 async function getCurrentSpeechText() {
   if (!state.activeBook) return "";
   const book=state.activeBook,decode=()=>new TextDecoder("utf-8").decode(book.data||new ArrayBuffer(0));
-  // Читаем содержимое книги целиком, а не только видимую страницу.
+  // Read the whole book/document instead of only the visible page.
   if(["txt","fb2"].includes(book.ext)){
     const raw=decode();
     if(book.ext==="fb2"){
       const parsed=new DOMParser().parseFromString(raw,"application/xml");
-      return parsed.querySelector("body")?.textContent?.replace(/\\s+/g," ").trim()||"";
+      return parsed.querySelector("body")?.textContent?.replace(/\s+/g," ").trim()||"";
     }
-    return raw.replace(/\\s+/g," ").trim();
+    return raw.replace(/\s+/g," ").trim();
   }
   if(["html","htm"].includes(book.ext)){
     const doc=new DOMParser().parseFromString(decode(),"text/html");
@@ -1268,10 +1268,10 @@ async function getCurrentSpeechText() {
     const pages=[];
     for(let n=1;n<=state.pdf.numPages;n++){
       const page=await state.pdf.getPage(n),textContent=await page.getTextContent();
-      const pageText=textContent.items.map(item=>typeof item.str==="string"?item.str+(item.hasEOL?"\\n":" "):"").join("").replace(/[ \\t]+/g," ").trim();
+      const pageText=textContent.items.map(item=>typeof item.str==="string"?item.str+(item.hasEOL?"\n":" "):"").join("").replace(/[ \t]+/g," ").trim();
       if(pageText)pages.push(pageText);
     }
-    return pages.join("\\n\\n");
+    return pages.join("\n\n");
   }
   if(state.epub){
     try{
@@ -1284,12 +1284,11 @@ async function getCurrentSpeechText() {
           item.unload?.();
         }catch(error){console.warn("EPUB chapter speech:",error);}
       }
-      if(sections.length)return sections.join("\\n\\n");
+      if(sections.length)return sections.join("\n\n");
     }catch(error){console.warn("EPUB speech extraction:",error);}
   }
   return $("readerContent")?.innerText?.trim()||$("readerContent")?.textContent?.trim()||"";
 }
-
 function splitSpeechText(text, maxLength = 1300) {
   const chunks = [];
   let remaining = text.replace(/\s+/g, " ").trim();
