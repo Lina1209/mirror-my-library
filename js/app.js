@@ -451,14 +451,12 @@ async function archiveImageData(zip, baseFile, source) {
   const path = resolveArchivePath(baseFile, source);
   const entry = zip.file(path);
   if (!entry) return "";
-  const blob = await entry.async("blob");
-  if (!/^image\/(png|jpeg|gif|webp)$/i.test(blob.type || "")) return "";
-  return await new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => resolve("");
-    reader.readAsDataURL(blob);
-  });
+  const ext=path.split(".").pop().toLowerCase();
+  const mimeByExt={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",gif:"image/gif",webp:"image/webp"};
+  const mime=mimeByExt[ext];
+  if(!mime)return "";
+  const base64=await entry.async("base64");
+  return base64?"data:"+mime+";base64,"+base64:"";
 }
 
 async function openEPUBFallback(book, progress, cause) {
