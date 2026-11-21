@@ -643,3 +643,12 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .pdf-signature-panel h3{margin:0 0 6px}
 .pdf-signature-panel p{font-size:13px;color:var(--muted)}
 .pdf-signature-canvas{display:block;width:100%;height:auto;aspect-ratio:900/280;background:transparent;border:1px dashed var(--line);border-radius:8px;touch-action:none;cursor:crosshair}
+
+.pdf-navigation-panel{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px auto;padding:10px;max-width:900px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.pdf-navigation-panel label{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.pdf-navigation-panel input{min-width:0;width:125px;max-width:45vw;padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text)}
+#pdfJumpPage{width:72px}
+.pdf-search-results,.pdf-bookmarks-list{display:flex;flex-basis:100%;gap:6px;flex-wrap:wrap;max-height:220px;overflow:auto}
+.pdf-search-result{max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}
+.pdf-bookmark-row{display:flex;gap:6px;align-items:center}
+@media(max-width:560px){.pdf-navigation-panel{align-items:stretch}.pdf-navigation-panel label{width:100%;justify-content:space-between}.pdf-navigation-panel input{flex:1}.pdf-navigation-panel button{min-height:40px}}
