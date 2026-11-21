@@ -13,6 +13,12 @@ const audioDock = $("readerAudioDock");
 const audioSettings = $("readerAudioSettings");
 const speechVoice = $("ttsVoice");
 const speechRate = $("ttsRate");
+if(speechRate){
+  const saved=localStorage.getItem("mirror-tts-rate")||speechRate.value||"0.9";
+  speechRate.replaceChildren();
+  for(let n=60;n<=150;n+=5){const value=(n/100).toFixed(2).replace(/0$/,"");speechRate.add(new Option(value.replace(".",","),value));}
+  speechRate.value=saved;
+}
 
 function isReaderOpen(){ return !view.classList.contains("hidden"); }
 function closeOverlays(){
@@ -20,7 +26,9 @@ function closeOverlays(){
 }
 function showScrim(){ scrim.hidden = false; }
 function showDrawer(){
-  closeOverlays(); drawer.hidden = false; showScrim();
+  closeOverlays();
+  $("readerActionsMenu").hidden=true;$("readerActionsBtn").setAttribute("aria-expanded","false");
+  drawer.hidden = false; showScrim();
   $("readerDrawerBookTitle").textContent = $("readerBookTitle").textContent || "Моя книга";
 }
 function showSubpanel(title, eyebrow, body){
@@ -193,7 +201,11 @@ $("readerDrawer").addEventListener("click",event=>{
     showSubpanel("Сетевая библиотека","ПОДКЛЮЧЕНИЕ",body);
   }
 });
-$("readerMenuBtn").addEventListener("click",event=>{event.stopPropagation();closeOverlays();settingsSheet.hidden=false;showScrim();});
+$("readerMenuBtn").addEventListener("click",event=>{
+  event.stopPropagation();closeOverlays();
+  $("readerSettingsMenu").hidden=true;$("readerMenuBtn").setAttribute("aria-expanded","false");
+  settingsSheet.hidden=false;showScrim();
+});
 $("readerSettingsClose").addEventListener("click",closeOverlays);
 $("readerSettingsSheet").addEventListener("click",event=>{const item=event.target.closest("[data-setting-page]");if(item)openSettingPage(item.dataset.settingPage);});
 $("readerThemeToggle").addEventListener("click",()=>setReaderTheme(view.classList.contains("reader-night")?"light":view.classList.contains("reader-sepia")?"night":"sepia"));
@@ -235,6 +247,22 @@ document.addEventListener("keydown",event=>{
 });
 $("readerSettingsSheet").addEventListener("click",event=>{if(event.target===settingsSheet)closeOverlays();});
 const speechObserver=new MutationObserver(()=>{updateAudioState();syncVoiceOptions();});
+const frameTapObserver=new MutationObserver(()=>{
+  $("readerContent").querySelectorAll("iframe").forEach(frame=>{
+    if(frame.dataset.readerTapBound)return;
+    frame.dataset.readerTapBound="1";
+    const bind=()=>{try{
+      const doc=frame.contentDocument;
+      if(!doc||doc.documentElement.dataset.mirrorTapBound)return;
+      doc.documentElement.dataset.mirrorTapBound="1";
+      doc.addEventListener("click",()=>{
+        if(!doc.getSelection?.().toString())view.classList.toggle("reader-chrome-visible");
+      });
+    }catch(error){console.debug("EPUB frame controls:",error);}};
+    frame.addEventListener("load",bind);bind();
+  });
+});
+frameTapObserver.observe($("readerContent"),{childList:true,subtree:true});
 if($("ttsStatus"))speechObserver.observe($("ttsStatus"),{childList:true,subtree:true,characterData:true});
 if($("ttsPlayBtn"))speechObserver.observe($("ttsPlayBtn"),{childList:true,subtree:true,characterData:true});
 if(window.speechSynthesis?.addEventListener)window.speechSynthesis.addEventListener("voiceschanged",syncVoiceOptions);

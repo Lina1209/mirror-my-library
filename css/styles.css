@@ -1065,3 +1065,8 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
  .reader-fixed-mode #readerContent{width:min(780px,calc(100% - 40px))}
 }
 @media(prefers-reduced-motion:reduce){.reader-fixed-mode .reader-toolbar{transition:none}}
+
+.reader-setting-buttons{display:flex;gap:9px;margin:12px 0}
+.reader-setting-buttons button{flex:1;min-height:42px}
+.reader-setting-controls{display:flex;flex-direction:column;gap:5px}
+.reader-fixed-mode .reader-toolbar{background:var(--panel)}
