@@ -463,7 +463,7 @@ function ensurePDFNavigationControls(){
       for(let pageNum=1;pageNum<=state.pdf.numPages;pageNum++){
         const page=await state.pdf.getPage(pageNum),content=await page.getTextContent(),text=content.items.map(item=>item.str||"").join(" ");
         const at=text.toLocaleLowerCase().indexOf(query);
-        if(at>=0)found.push({page:pageNum,text:text.slice(Math.max(0,at-65),Math.min(text.length,at+query.length+100)).replace(/\\s+/g," ").trim()});
+        if(at>=0)found.push({page:pageNum,text:text.slice(Math.max(0,at-65),Math.min(text.length,at+query.length+100)).replace(/\s+/g," ").trim()});
       }
       const summary=document.createElement("small");summary.textContent="Найдено страниц с совпадением: "+found.length;results.append(summary);
       found.slice(0,100).forEach(item=>{
