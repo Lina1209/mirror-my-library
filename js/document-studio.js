@@ -947,7 +947,7 @@ async function exportXLSX(){
   window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
   say("XLSX создан: "+tables.length+" листов. Сохранены данные, объединения ячеек и доступные размеры столбцов/строк. Формулы, стили и сложные настройки проверьте в Excel.");
 }
-async async function exportSelectedFormat(){
+async function exportSelectedFormat(){
   const format=$("studioExportFormat").value;
   try{
     if(format==="pdf"){await exportPDFDownload();return;}
