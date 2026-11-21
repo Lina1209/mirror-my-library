@@ -282,7 +282,7 @@ function sanitizeImportedHTML(markup){
     const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
     if(style)node.setAttribute("style",style);
     const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
-    const safeClasses=new Set(["studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
+    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
     const keptClasses=classValue.split(/\s+/).filter(name=>safeClasses.has(name));
     if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
@@ -295,7 +295,7 @@ function sanitizeImportedHTML(markup){
     if(["TD","TH"].includes(node.tagName)){
       ["rowspan","colspan"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isInteger(n)&&n>=1&&n<=100)node.setAttribute(key,String(n));});
     }
-    const safeDataAttributes=new Set(["data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
+    const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
     attrs.forEach(attr=>{
       const key=attr.name.toLowerCase(),value=String(attr.value||"").trim();
       if(!safeDataAttributes.has(key))return;
@@ -322,6 +322,29 @@ function setDocxBorder(element,side,xmlBorder){
   const width=sz?Math.max(.5,Math.min(8,sz/6)):1;
   let color=xmlAttr(xmlBorder,"color");if(!/^[0-9a-f]{6}$/i.test(color))color="777777";
   element.style["border"+cssSide]=width+"px "+cssStyle+" #"+color;
+}
+function restoreDocxPageSettings(xmlText){
+  const xml=new DOMParser().parseFromString(xmlText,"application/xml");
+  if(xml.querySelector("parsererror"))throw new Error("Некорректные настройки страницы DOCX");
+  const sectPr=xml.getElementsByTagNameNS(WORD_NS,"sectPr")[0];
+  if(!sectPr)return false;
+  const pgSz=xmlKid(sectPr,"pgSz"),pgMar=xmlKid(sectPr,"pgMar");
+  const settings={
+    width:xmlNumber(pgSz,"w")||11906,height:xmlNumber(pgSz,"h")||16838,
+    top:xmlNumber(pgMar,"top")||1134,right:xmlNumber(pgMar,"right")||850,
+    bottom:xmlNumber(pgMar,"bottom")||1134,left:xmlNumber(pgMar,"left")||850,
+    header:xmlNumber(pgMar,"header")||567,footer:xmlNumber(pgMar,"footer")||567
+  };
+  let marker=editor.querySelector(".studio-docx-page-settings");
+  if(!marker){marker=document.createElement("div");marker.className="studio-docx-page-settings";editor.prepend(marker);}
+  Object.entries(settings).forEach(([key,value])=>marker.dataset["page"+key[0].toUpperCase()+key.slice(1)]=String(value));
+  return true;
+}
+function readDocxPageSettings(){
+  const marker=editor.querySelector(".studio-docx-page-settings");
+  const number=(key,fallback)=>{const value=Number(marker?.dataset[key]);return Number.isFinite(value)&&value>0?Math.round(value):fallback;};
+  return {width:number("pageWidth",11906),height:number("pageHeight",16838),
+    top:number("pageTop",1134),right:number("pageRight",850),bottom:number("pageBottom",1134),left:number("pageLeft",850)};
 }
 function restoreDocxTableGeometry(xmlText){
   const xml=new DOMParser().parseFromString(xmlText,"application/xml");
@@ -418,7 +441,7 @@ async function importDOCX(file){
   try{
     await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение структуры таблиц DOCX");
     const zip=await window.JSZip.loadAsync(bytes.slice(0)),documentXml=await zip.file("word/document.xml")?.async("text");
-    if(documentXml){const count=restoreDocxTableGeometry(documentXml);tableNote=" Таблиц обработано: "+count+".";}
+    if(documentXml){const count=restoreDocxTableGeometry(documentXml);tableNote=" Таблиц обработано: "+count+".";if(restoreDocxPageSettings(documentXml))tableNote+=" Размер страницы и поля документа восстановлены."; }
   }catch(error){
     console.warn("Не удалось восстановить геометрию таблиц DOCX:",error);
     tableNote=" Геометрия таблиц не восстановлена: "+error.message;
@@ -668,6 +691,7 @@ async function exportDOCX(){
   }
   function addBlock(node){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
+    if(node.classList?.contains("studio-docx-page-settings"))return;
     if(node.dataset?.pageBreak==="true"){children.push(new Paragraph({children:[new PageBreak()]}));return;}
     if(node.tagName==="TABLE"){
       const colgroup=node.querySelector(":scope > colgroup");
@@ -716,7 +740,8 @@ async function exportDOCX(){
   }
   [...editor.children].forEach(addBlock);
   if(!children.length)children.push(new Paragraph({text:editor.innerText}));
-  const doc=new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,right:850,bottom:1134,left:850}}},children}]});
+  const page=readDocxPageSettings();
+  const doc=new Document({sections:[{properties:{page:{size:{width:page.width,height:page.height},margin:{top:page.top,right:page.right,bottom:page.bottom,left:page.left}}},children}]});
   const blob=await Packer.toBlob(doc);
   download(blob,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.docx");
   say("DOCX создан. Перенесены объединённые ячейки, размеры столбцов и строк, заливка, границы, отступы и вертикальное выравнивание таблиц, а также текст и встроенные изображения. Проверьте итоговый файл: сложные вложенные таблицы и нестандартные стили могут отличаться.");
