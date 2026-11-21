@@ -608,3 +608,7 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
  .reader-fullscreen-visible{font-size:1.1rem;min-width:42px}
  .reader-view.reader-fullscreen{padding:5px}
 }
+
+.reader-tts-visible{flex-shrink:0}
+.reader-tts-status{font-size:.75rem;color:var(--muted);max-width:170px;overflow-wrap:anywhere}
+@media(max-width:600px){.reader-tts-status{display:none}.reader-tts-visible,.reader-fullscreen-visible{padding:7px 9px;min-width:40px}}
