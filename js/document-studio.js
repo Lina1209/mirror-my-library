@@ -143,6 +143,18 @@ previewDownload?.addEventListener("click",previewDownloadOriginal);
 $("studioPreviewPrev")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page>1){studioPreview.page--;previewRenderPDF();}});
 $("studioPreviewNext")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page<studioPreview.pdf.numPages){studioPreview.page++;previewRenderPDF();}});
 previewZoom?.addEventListener("change",()=>{studioPreview.zoom=previewZoom.value;if(studioPreview.pdf)previewRenderPDF();else{const img=previewSurface.querySelector("img");if(img)img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%";}});
+function adjustStudioPreviewZoom(direction){
+  if(!previewZoom)return;
+  const steps=[0.75,1,1.25,1.5,2];
+  const current=studioPreview.zoom==="fit"?1:Number(studioPreview.zoom)||1;
+  let index=steps.findIndex(value=>value>=current-0.001);
+  if(index<0)index=steps.length-1;
+  index=Math.max(0,Math.min(steps.length-1,index+direction));
+  previewZoom.value=String(steps[index]);
+  previewZoom.dispatchEvent(new Event("change"));
+}
+$("studioPreviewZoomOut")?.addEventListener("click",()=>adjustStudioPreviewZoom(-1));
+$("studioPreviewZoomIn")?.addEventListener("click",()=>adjustStudioPreviewZoom(1));
 $("studioPreviewFullscreen")?.addEventListener("click",async()=>{
   const box=$("studioPreviewSurface").closest(".studio-preview-card");
   try{if(document.fullscreenElement===box)await document.exitFullscreen();else if(box.requestFullscreen)await box.requestFullscreen();else box.classList.toggle("studio-preview-expanded");}
