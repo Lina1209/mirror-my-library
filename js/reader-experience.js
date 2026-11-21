@@ -149,6 +149,7 @@ function syncReaderSettings(){
   setReaderTheme(localStorage.getItem("mirror-reader-theme")||"light");
 }
 function openAudioSettings(){
+  view.classList.remove("reader-chrome-visible");
   closeOverlays();audioDock.hidden=false;audioSettings.hidden=false;showScrim();
   syncVoiceOptions();
   $("readerRateRange").value=speechRate?.value||"0.9";
@@ -168,6 +169,7 @@ function updateAudioState(){
   $("readerAudioStatus").textContent=paused?"Пауза":speaking?"Идёт чтение вслух":$("ttsStatus")?.textContent||"Готово к чтению";
 }
 function openAudioDock(start){
+  view.classList.remove("reader-chrome-visible");
   closeOverlays();audioDock.hidden=false;updateAudioState();
   if(start&&!window.speechSynthesis?.speaking&&!window.speechSynthesis?.paused)$("ttsPlayBtn").click();
 }
