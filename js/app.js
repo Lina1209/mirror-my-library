@@ -381,6 +381,39 @@ async function ensureScript(test, src, label) {
   if (!test()) throw new Error(`Библиотека ${label} не запустилась.`);
 }
 
+async function createPDFCoverThumbnail(file) {
+  try {
+    const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+    const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    try {
+      const page = await document.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(0.42, 180 / base.width, 240 / base.height);
+      const viewport = page.getViewport({ scale: Math.max(0.1, scale) });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      return canvas.toDataURL("image/jpeg", 0.82);
+    } finally {
+      await document.destroy();
+    }
+  } catch (error) {
+    console.warn("Не удалось создать миниатюру первой страницы PDF:", error);
+    return "";
+  }
+}
+
+async function fileToCoverData(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(file);
+  });
+}
+
 async function importFiles(fileList) {
   let added = 0;
   for (const file of fileList) {
@@ -407,6 +440,8 @@ async function importFiles(fileList) {
           "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "ZIP");
       }
       const metadata = await extractMetadata(data, ext);
+      if (!metadata.coverData && ext === "pdf") metadata.coverData = await createPDFCoverThumbnail(data);
+      if (!metadata.coverData && ["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) metadata.coverData = await fileToCoverData(data);
       await put("books", {
         id: makeId(), name: file.name, title: metadata.title,
         author: metadata.author, ...(metadata.coverData ? { coverData: metadata.coverData } : {}), ext, type: file.type,
