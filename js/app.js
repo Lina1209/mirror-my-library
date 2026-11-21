@@ -5,7 +5,7 @@ const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
   libraryLayout: localStorage.getItem("mirror-library-layout") === "cards" ? "cards" : "list",
-  epub: null, rendition: null, pdf: null, pdfPage: 1,
+  epub: null, rendition: null, epubText: "", pdf: null, pdfPage: 1, pdfZoom: 1,
   fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
   pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
 };
@@ -406,25 +406,112 @@ async function openHTML(book, progress) {
 }
 
 async function openEPUB(book, progress) {
-  await ensureScript(() => !!window.ePub,
-    "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js", "EPUB");
-  const content = $("readerContent");
-  content.replaceChildren();
-  state.epub = window.ePub(book.data);
-  state.rendition = state.epub.renderTo(content, {
-    width: "100%", height: "65vh", flow: "paginated",
-    spread: "none", allowScriptedContent: false
+  try {
+    await ensureScript(() => !!window.ePub,
+      "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js", "EPUB");
+    const content = $("readerContent");
+    content.replaceChildren();
+    state.epub = window.ePub(book.data.slice ? book.data.slice(0) : book.data);
+    state.rendition = state.epub.renderTo(content, {
+      width: "100%", height: "65vh", flow: "paginated",
+      spread: "none", allowScriptedContent: false
+    });
+    state.rendition.on("relocated", location => {
+      const percentage = location.start?.percentage || 0;
+      saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
+      setReaderStatus(`Прочитано ${Math.round(percentage * 100)}%`);
+    });
+    await state.rendition.display(progress?.cfi || undefined);
+    state.rendition.themes.fontSize(`${state.fontSize}px`);
+    $("prevBtn").disabled = false;
+    $("nextBtn").disabled = false;
+    setReaderStatus("EPUB · полная версия");
+  } catch (error) {
+    console.warn("EPUB.js не открыл книгу; включаем резервный просмотр:", error);
+    state.rendition?.destroy?.();
+    state.rendition = null;
+    state.epub = null;
+    await openEPUBFallback(book, progress, error);
+  }
+}
+
+function resolveArchivePath(baseFile, relativePath) {
+  const clean = String(relativePath || "").split(/[?#]/)[0];
+  const parts = String(baseFile || "").split("/");
+  parts.pop();
+  for (const part of clean.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+async function archiveImageData(zip, baseFile, source) {
+  const path = resolveArchivePath(baseFile, source);
+  const entry = zip.file(path);
+  if (!entry) return "";
+  const blob = await entry.async("blob");
+  if (!/^image\/(png|jpeg|gif|webp)$/i.test(blob.type || "")) return "";
+  return await new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(blob);
   });
-  state.rendition.on("relocated", location => {
-    const percentage = location.start?.percentage || 0;
-    saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
-    setReaderStatus(`Прочитано ${Math.round(percentage * 100)}%`);
+}
+
+async function openEPUBFallback(book, progress, cause) {
+  await ensureScript(() => !!window.JSZip,
+    "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "EPUB archive reader");
+  const zip = await window.JSZip.loadAsync(book.data.slice ? book.data.slice(0) : book.data);
+  const containerFile = zip.file("META-INF/container.xml");
+  if (!containerFile) throw new Error("В EPUB отсутствует META-INF/container.xml.");
+  const container = new DOMParser().parseFromString(await containerFile.async("string"), "application/xml");
+  const opfPath = container.getElementsByTagNameNS("*", "rootfile")[0]?.getAttribute("full-path");
+  if (!opfPath) throw new Error("В EPUB не найден путь к файлу package.opf.");
+  const opfFile = zip.file(opfPath);
+  if (!opfFile) throw new Error("Не найден файл описания книги EPUB.");
+  const opf = new DOMParser().parseFromString(await opfFile.async("string"), "application/xml");
+  if (opf.querySelector("parsererror")) throw new Error("Файл описания EPUB повреждён.");
+  const manifest = new Map();
+  [...opf.getElementsByTagNameNS("*", "item")].forEach(item => {
+    const id=item.getAttribute("id"),href=item.getAttribute("href"),type=item.getAttribute("media-type");
+    if(id&&href)manifest.set(id,{href,type});
   });
-  await state.rendition.display(progress?.cfi || undefined);
-  state.rendition.themes.fontSize(`${state.fontSize}px`);
-  $("prevBtn").disabled = false;
-  $("nextBtn").disabled = false;
-  setReaderStatus("EPUB");
+  const chapters=[];
+  const spine=[...opf.getElementsByTagNameNS("*","itemref")];
+  for(const itemref of spine){
+    const item=manifest.get(itemref.getAttribute("idref"));
+    if(!item||!/xhtml|html/i.test(item.type||""))continue;
+    const chapterPath=resolveArchivePath(opfPath,item.href);
+    const chapterFile=zip.file(chapterPath);
+    if(!chapterFile)continue;
+    const source=await chapterFile.async("string");
+    const doc=new DOMParser().parseFromString(source,"text/html");
+    doc.querySelectorAll("script,iframe,object,embed,form,video,audio").forEach(node=>node.remove());
+    for(const image of [...doc.querySelectorAll("img, image")]){
+      const src=image.getAttribute("src")||image.getAttribute("href")||image.getAttribute("xlink:href")||"";
+      if(!src||/^(https?:|data:|#)/i.test(src)){if(/^https?:/i.test(src))image.removeAttribute("src");continue;}
+      const data=await archiveImageData(zip,chapterPath,src);
+      if(data)image.setAttribute("src",data);else image.remove();
+    }
+    const content=safeHTML(doc.body?.innerHTML||"");
+    if(content.trim())chapters.push(content);
+  }
+  if(!chapters.length)throw new Error("В EPUB не удалось найти читаемые главы.");
+  state.currentTextPages=chapters;
+  state.textPage=Math.max(0,Math.min(Number(progress?.page)||0,chapters.length-1));
+  state.epubText=chapters.map(html=>{const doc=new DOMParser().parseFromString(html,"text/html");return doc.body?.innerText||doc.body?.textContent||"";}).join("\n\n");
+  renderEPUBFallbackPage();
+  setReaderStatus("EPUB · резервный режим чтения");
+}
+
+function renderEPUBFallbackPage() {
+  const content=$("readerContent");
+  content.innerHTML=safeHTML(state.currentTextPages[state.textPage]||"");
+  updateTextNav("Глава");
+  if(state.activeBook)saveProgress(state.activeBook.id,(state.textPage+1)/state.currentTextPages.length*100,{page:state.textPage});
 }
 
 async function openPDF(book, progress) {
@@ -447,7 +534,7 @@ async function renderPDFPage() {
   const page = await state.pdf.getPage(state.pdfPage);
   const base = page.getViewport({ scale: 1 });
   const availableWidth = Math.max(280, Math.min(760, window.innerWidth - 64));
-  const scale = Math.min(1.5, availableWidth / base.width);
+  const scale = Math.min(1.5, availableWidth / base.width) * Math.max(0.65, Math.min(3, state.pdfZoom || 1));
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -493,7 +580,11 @@ async function renderPDFPage() {
 
 
 function ensurePDFNavigationControls(){
-  if($("pdfNavigationPanel")){$("pdfJumpPage").value=String(state.pdfPage);return;}
+  if($("pdfNavigationPanel")){
+    $("pdfJumpPage").value=String(state.pdfPage);
+    const zoomLabel=$("pdfZoomValue");if(zoomLabel)zoomLabel.textContent=Math.round((state.pdfZoom||1)*100)+"%";
+    return;
+  }
   const panel=document.createElement("section");panel.id="pdfNavigationPanel";panel.className="pdf-navigation-panel";
   const pageLabel=document.createElement("label");pageLabel.textContent="Перейти к странице ";
   const pageInput=document.createElement("input");pageInput.id="pdfJumpPage";pageInput.type="number";pageInput.min="1";pageInput.value=String(state.pdfPage);pageInput.inputMode="numeric";pageInput.setAttribute("aria-label","Номер страницы PDF");
@@ -538,7 +629,18 @@ function ensurePDFNavigationControls(){
       row.append(jump,removeBtn);marks.append(row);
     });
   };
-  panel.append(pageLabel,searchLabel,marksButton,results,marks);$("readerMeta").append(panel);pageInput.value=String(state.pdfPage);
+  const zoomGroup=document.createElement("div");zoomGroup.className="pdf-reader-zoom";
+  const zoomTitle=document.createElement("span");zoomTitle.textContent="Масштаб страницы ";
+  const zoomOut=document.createElement("button");zoomOut.type="button";zoomOut.className="secondary";zoomOut.textContent="−";zoomOut.setAttribute("aria-label","Уменьшить страницу PDF");
+  const zoomValue=document.createElement("strong");zoomValue.id="pdfZoomValue";zoomValue.textContent=Math.round((state.pdfZoom||1)*100)+"%";
+  const zoomIn=document.createElement("button");zoomIn.type="button";zoomIn.className="secondary";zoomIn.textContent="+";zoomIn.setAttribute("aria-label","Увеличить страницу PDF");
+  const zoomFit=document.createElement("button");zoomFit.type="button";zoomFit.className="secondary";zoomFit.textContent="По ширине";
+  const changeZoom=async(value)=>{state.pdfZoom=Math.max(0.65,Math.min(3,Math.round(value*100)/100));zoomValue.textContent=Math.round(state.pdfZoom*100)+"%";await renderPDFPage();};
+  zoomOut.onclick=()=>changeZoom((state.pdfZoom||1)-0.2);
+  zoomIn.onclick=()=>changeZoom((state.pdfZoom||1)+0.2);
+  zoomFit.onclick=()=>changeZoom(1);
+  zoomGroup.append(zoomTitle,zoomOut,zoomValue,zoomIn,zoomFit);
+  panel.append(pageLabel,zoomGroup,searchLabel,marksButton,results,marks);$("readerMeta").append(panel);pageInput.value=String(state.pdfPage);
 }
 
 function ensurePDFEditorControls() {
@@ -1077,7 +1179,9 @@ async function openBook(bookId) {
   state.activeBook = book;
   state.epub = null;
   state.rendition = null;
+  state.epubText = "";
   state.pdf = null;
+  state.pdfZoom = 1;
   state.pdfOverlay = null;
   state.pdfAnnotations = {};
   state.pdfUndo = {};
@@ -1119,6 +1223,7 @@ $("prevBtn").onclick = async () => {
   if (state.textPage > 0) {
     state.textPage--;
     if (state.activeBook?.ext === "fb2") renderFB2Page();
+    else if (state.activeBook?.ext === "epub" && !state.rendition) renderEPUBFallbackPage();
     else renderTextPage();
   }
 };
@@ -1131,6 +1236,7 @@ $("nextBtn").onclick = async () => {
   if (state.textPage < state.currentTextPages.length - 1) {
     state.textPage++;
     if (state.activeBook?.ext === "fb2") renderFB2Page();
+    else if (state.activeBook?.ext === "epub" && !state.rendition) renderEPUBFallbackPage();
     else renderTextPage();
   }
 };
@@ -1384,6 +1490,7 @@ async function getCurrentSpeechText() {
     }
     return pages.join("\n\n");
   }
+  if(state.epubText)return state.epubText;
   if(state.epub){
     try{
       const spine=state.epub.spine?.items||[],sections=[];
