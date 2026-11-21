@@ -86,6 +86,71 @@ async function refresh() {
   renderBooks();
 }
 
+function createBookCover(book) {
+  const cover = document.createElement("div");
+  const extClass = book.ext?.startsWith("fb2") ? "fb2" : (book.ext || "");
+  cover.className = `cover ${["fb2", "epub", "pdf", "txt"].includes(extClass) ? extClass : ""}`;
+  if (book.coverData) {
+    const image = document.createElement("img");
+    image.src = book.coverData;
+    image.alt = `Обложка книги «${book.title || book.name || "Без названия"}»`;
+    image.loading = "lazy";
+    cover.classList.add("has-real-cover");
+    cover.append(image);
+  } else {
+    const coverTitle = document.createElement("span");
+    coverTitle.textContent = book.title || book.name || "Без названия";
+    cover.append(coverTitle);
+  }
+  return cover;
+}
+
+function renderReaderLibraryPicker() {
+  const term = $("readerLibrarySearch").value.trim().toLocaleLowerCase();
+  const books = state.books.filter(book =>
+    !term || `${book.title || ""} ${book.author || ""} ${book.name || ""}`.toLocaleLowerCase().includes(term)
+  );
+  const grid = $("readerLibraryGrid");
+  const listMode = $("readerPickerList").classList.contains("active");
+  grid.classList.toggle("reader-picker-list", listMode);
+  grid.replaceChildren();
+  for (const book of books) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "reader-picker-book";
+    card.title = `Открыть «${book.title || book.name}»`;
+    const cover = createBookCover(book);
+    const details = document.createElement("span");
+    details.className = "reader-picker-details";
+    const title = document.createElement("strong");
+    title.textContent = book.title || book.name || "Без названия";
+    const author = document.createElement("small");
+    author.textContent = book.author || "Автор не указан";
+    const format = document.createElement("small");
+    format.className = "reader-picker-format";
+    format.textContent = (book.ext || "").toUpperCase();
+    details.append(title, author, format);
+    card.append(cover, details);
+    card.addEventListener("click", () => {
+      $("readerLibraryDialog").close();
+      openBook(book.id);
+    });
+    grid.append(card);
+  }
+  $("readerLibraryEmpty").classList.toggle("hidden", books.length > 0);
+  grid.classList.toggle("hidden", books.length === 0);
+}
+
+function openReaderLibraryPicker() {
+  $("readerLibrarySearch").value = "";
+  $("readerPickerCards").classList.add("active");
+  $("readerPickerList").classList.remove("active");
+  $("readerPickerCards").setAttribute("aria-pressed", "true");
+  $("readerPickerList").setAttribute("aria-pressed", "false");
+  renderReaderLibraryPicker();
+  $("readerLibraryDialog").showModal();
+}
+
 function renderBooks() {
   const term = $("searchInput").value.trim().toLowerCase();
   const filtered = state.books.filter(book => {
@@ -117,12 +182,7 @@ function renderBooks() {
     const card = document.createElement("article");
     card.className = "book-card";
 
-    const cover = document.createElement("div");
-    const extClass = book.ext.startsWith("fb2") ? "fb2" : book.ext;
-    cover.className = `cover ${["fb2", "epub", "pdf", "txt"].includes(extClass) ? extClass : ""}`;
-    const coverTitle = document.createElement("span");
-    coverTitle.textContent = book.title;
-    cover.append(coverTitle);
+    const cover = createBookCover(book);
 
     const row = document.createElement("div");
     row.className = "card-row";
@@ -349,7 +409,7 @@ async function importFiles(fileList) {
       const metadata = await extractMetadata(data, ext);
       await put("books", {
         id: makeId(), name: file.name, title: metadata.title,
-        author: metadata.author, ext, type: file.type,
+        author: metadata.author, ...(metadata.coverData ? { coverData: metadata.coverData } : {}), ext, type: file.type,
         data: await data.arrayBuffer(),
         ...(originalArchive ? { downloadData: originalArchive, downloadType: file.type || "application/zip" } : {}),
         addedAt: Date.now(), favorite: false
@@ -1461,6 +1521,19 @@ $("fileInput").onchange = event => {
   event.target.value = "";
 };
 $("searchInput").oninput = renderBooks;
+$("readerLibraryClose").onclick = () => $("readerLibraryDialog").close();
+$("readerLibrarySearch").oninput = renderReaderLibraryPicker;
+$("readerLibraryUpload").onclick = () => { $("readerLibraryDialog").close(); $("fileInput").click(); };
+$("readerPickerCards").onclick = () => {
+  $("readerPickerCards").classList.add("active"); $("readerPickerList").classList.remove("active");
+  $("readerPickerCards").setAttribute("aria-pressed", "true"); $("readerPickerList").setAttribute("aria-pressed", "false");
+  renderReaderLibraryPicker();
+};
+$("readerPickerList").onclick = () => {
+  $("readerPickerList").classList.add("active"); $("readerPickerCards").classList.remove("active");
+  $("readerPickerList").setAttribute("aria-pressed", "true"); $("readerPickerCards").setAttribute("aria-pressed", "false");
+  renderReaderLibraryPicker();
+};
 $("cardsViewBtn")?.addEventListener("click", () => {
   state.libraryLayout = "cards";
   localStorage.setItem("mirror-library-layout", "cards");
@@ -1599,7 +1672,8 @@ readerActionsMenu.addEventListener("click", event => {
   if (!item) return;
   const action = item.dataset.readerAction;
   closeReaderActionsMenu();
-  if (action === "open") $("fileInput").click();
+  if (action === "open-device") $("fileInput").click();
+  else if (action === "open-library") openReaderLibraryPicker();
   else if (action === "library") $("backBtn").click();
   else if (!state.activeBook) toast("Сначала откройте книгу.");
   else if (action === "details") { showDetails(state.activeBook); $("detailsDialog").showModal(); }
