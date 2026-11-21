@@ -114,6 +114,29 @@ async function openStudioPreview(file){
     previewSay(file.name+" · формат не поддерживается для визуального просмотра.");
   }catch(error){console.error("Document preview:",error);previewSurface.textContent="Ошибка просмотра: "+error.message;previewSay("Не удалось открыть файл. Оригинал доступен для скачивания.");}
 }
+
+// Accept a book already stored in the local library and open it in the separate editor workspace.
+window.openMirrorBookInStudio = async function(file) {
+  if (!(file instanceof File)) throw new TypeError("Не удалось получить файл из библиотеки.");
+  const assignFile = input => {
+    if (!input) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+  };
+  $("openStudioBtn")?.click();
+  assignFile(fileInput);
+  assignFile($("studioPreviewFile"));
+  state.sourceName = file.name;
+  state.sourceType = file.type || "";
+  if (fileInput) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  await openStudioPreview(file);
+  previewDownload.disabled = false;
+  previewDownloadOriginal;
+  previewSay(file.name + " · файл из библиотеки. Оригинал не изменяется; OCR и редактирование запускаются отдельно.");
+  $("studioPreviewMeta")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+};
+
 $("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
 $("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
 $("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
