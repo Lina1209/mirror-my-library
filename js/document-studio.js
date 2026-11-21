@@ -81,6 +81,7 @@ async function openStudioPreview(file){
 }
 $("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
 $("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+$("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
 previewDownload?.addEventListener("click",previewDownloadOriginal);
 $("studioPreviewPrev")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page>1){studioPreview.page--;previewRenderPDF();}});
 $("studioPreviewNext")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page<studioPreview.pdf.numPages){studioPreview.page++;previewRenderPDF();}});
