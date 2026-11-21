@@ -465,8 +465,10 @@ async function openEPUB(book, progress) {
     state.rendition.on("relocated", location => {
       const percentage = location.start?.percentage || 0;
       saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
-      const displayed = location.start?.displayed;\n      const pageDetail = displayed?.total ? `Страница ${displayed.page} из ${displayed.total}` : "Позиция в EPUB";
-      setReaderStatus(pageDetail);\n      updateReaderProgress(percentage * 100, pageDetail);
+      const displayed = location.start?.displayed;
+      const pageDetail = displayed?.total ? `Страница ${displayed.page} из ${displayed.total}` : "Позиция в EPUB";
+      setReaderStatus(pageDetail);
+      updateReaderProgress(percentage * 100, pageDetail);
     });
     await state.rendition.display(progress?.cfi || undefined);
     state.rendition.themes.fontSize(`${state.fontSize}px`);
@@ -1447,7 +1449,8 @@ function showReaderHome() {
   $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>';
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
-  $("pageStatus").textContent = "Готово к чтению";\n  updateReaderProgress(0, "Прогресс чтения");
+  $("pageStatus").textContent = "Готово к чтению";
+  updateReaderProgress(0, "Прогресс чтения");
   $("readerChooseBookBtn").onclick = () => $("backBtn").click();
 }
 $("readerNavBtn")?.addEventListener("click", () => {
