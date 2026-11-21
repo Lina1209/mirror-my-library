@@ -1341,7 +1341,7 @@ function updateTTSButtons() {
   ttsPauseButton.disabled = !speaking && !paused && !hasQueue;
   ttsStopButton.disabled = !speaking && !paused && !hasQueue;
   ttsPauseButton.textContent = paused ? "▶ Продолжить" : "Ⅱ Пауза";
-  ttsPlayButton.textContent = (speaking || hasQueue) && !paused ? "🔊 Читает…" : "🔊 Читать";
+  ttsPlayButton.textContent = (speaking || hasQueue) && !paused ? "🔊 Читает…" : "🔊 Читать";\n  const status=$("ttsStatus");if(status){status.textContent=paused?"Пауза":speaking?"Идёт озвучивание":tts.voices.length?"Голос готов":"Нет списка голосов";}
 }
 
 function stopBookSpeech() {
