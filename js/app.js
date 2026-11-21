@@ -432,6 +432,7 @@ async function renderPDFPage() {
   await restorePDFAnnotationLayer(overlay, state.pdfAnnotations[state.pdfPage]);
   renderPDFImageObjects();
   attachPDFAnnotationEvents(overlay);
+  ensurePDFNavigationControls();
   ensurePDFEditorControls();
   updatePDFToolButtons();
   $("prevBtn").disabled = state.pdfPage <= 1;
@@ -441,6 +442,55 @@ async function renderPDFPage() {
     { page: state.pdfPage });
 }
 
+
+function ensurePDFNavigationControls(){
+  if($("pdfNavigationPanel"))return;
+  const panel=document.createElement("section");panel.id="pdfNavigationPanel";panel.className="pdf-navigation-panel";
+  const pageLabel=document.createElement("label");pageLabel.textContent="Перейти к странице ";
+  const pageInput=document.createElement("input");pageInput.id="pdfJumpPage";pageInput.type="number";pageInput.min="1";pageInput.value=String(state.pdfPage);pageInput.inputMode="numeric";pageInput.setAttribute("aria-label","Номер страницы PDF");
+  const go=document.createElement("button");go.type="button";go.className="secondary";go.textContent="Перейти";
+  const goPage=async()=>{const value=Math.max(1,Math.min(state.pdf?.numPages||1,Number(pageInput.value)||1));state.pdfPage=value;await renderPDFPage();};
+  go.onclick=goPage;pageInput.onkeydown=e=>{if(e.key==="Enter")goPage();};pageLabel.append(pageInput,go);
+  const searchLabel=document.createElement("label");searchLabel.textContent="Поиск в PDF ";
+  const searchInput=document.createElement("input");searchInput.id="pdfSearchQuery";searchInput.type="search";searchInput.placeholder="Слово или фраза";
+  const searchBtn=document.createElement("button");searchBtn.type="button";searchBtn.className="secondary";searchBtn.textContent="Найти";
+  const results=document.createElement("div");results.id="pdfSearchResults";results.className="pdf-search-results";
+  searchBtn.onclick=async()=>{
+    const query=searchInput.value.trim().toLocaleLowerCase();results.replaceChildren();if(!query||!state.pdf)return;
+    searchBtn.disabled=true;searchBtn.textContent="Ищу…";
+    try{
+      const found=[];
+      for(let pageNum=1;pageNum<=state.pdf.numPages;pageNum++){
+        const page=await state.pdf.getPage(pageNum),content=await page.getTextContent(),text=content.items.map(item=>item.str||"").join(" ");
+        const at=text.toLocaleLowerCase().indexOf(query);
+        if(at>=0)found.push({page:pageNum,text:text.slice(Math.max(0,at-65),Math.min(text.length,at+query.length+100)).replace(/\\s+/g," ").trim()});
+      }
+      const summary=document.createElement("small");summary.textContent="Найдено страниц с совпадением: "+found.length;results.append(summary);
+      found.slice(0,100).forEach(item=>{
+        const button=document.createElement("button");button.type="button";button.className="pdf-search-result secondary";
+        button.textContent="Стр. "+item.page+": "+item.text;
+        button.onclick=async()=>{state.pdfPage=item.page;await renderPDFPage();};results.append(button);
+      });
+      if(!found.length){const empty=document.createElement("small");empty.textContent="Совпадений не найдено. Возможно, PDF — скан и требуется OCR.";results.append(empty);}
+    }catch(error){console.warn("PDF search",error);toast("Не удалось выполнить поиск в PDF: "+error.message);}
+    finally{searchBtn.disabled=false;searchBtn.textContent="Найти";}
+  };
+  searchLabel.append(searchInput,searchBtn);
+  const marksButton=document.createElement("button");marksButton.type="button";marksButton.className="secondary";marksButton.textContent="Закладки";
+  const marks=document.createElement("div");marks.id="pdfBookmarksList";marks.className="pdf-bookmarks-list";marks.hidden=true;
+  marksButton.onclick=async()=>{
+    marks.hidden=!marks.hidden;if(marks.hidden)return;marks.replaceChildren();
+    const list=(await getAll("bookmarks")).filter(mark=>mark.bookId===state.activeBook?.id).sort((a,b)=>a.page-b.page);
+    if(!list.length){marks.textContent="Для этого документа закладок пока нет.";return;}
+    list.forEach(mark=>{
+      const row=document.createElement("div");row.className="pdf-bookmark-row";
+      const jump=document.createElement("button");jump.type="button";jump.className="secondary";jump.textContent="Страница "+mark.page;jump.onclick=async()=>{state.pdfPage=mark.page;await renderPDFPage();};
+      const removeBtn=document.createElement("button");removeBtn.type="button";removeBtn.className="secondary";removeBtn.textContent="Удалить";removeBtn.onclick=async()=>{await remove("bookmarks",mark.id);row.remove();toast("Закладка удалена");};
+      row.append(jump,removeBtn);marks.append(row);
+    });
+  };
+  panel.append(pageLabel,searchLabel,marksButton,results,marks);$("readerMeta").append(panel);pageInput.value=String(state.pdfPage);
+}
 
 function ensurePDFEditorControls() {
   if ($("pdfEditorToolbar")) return;
