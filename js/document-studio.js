@@ -132,7 +132,6 @@ window.openMirrorBookInStudio = async function(file) {
   if (fileInput) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
   await openStudioPreview(file);
   previewDownload.disabled = false;
-  previewDownloadOriginal;
   previewSay(file.name + " · файл из библиотеки. Оригинал не изменяется; OCR и редактирование запускаются отдельно.");
   $("studioPreviewMeta")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
 };
