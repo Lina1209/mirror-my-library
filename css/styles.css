@@ -612,3 +612,6 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .reader-tts-visible{flex-shrink:0}
 .reader-tts-status{font-size:.75rem;color:var(--muted);max-width:170px;overflow-wrap:anywhere}
 @media(max-width:600px){.reader-tts-status{display:none}.reader-tts-visible,.reader-fullscreen-visible{padding:7px 9px;min-width:40px}}
+
+.reader-image{display:block;max-width:100%;max-height:calc(100vh - 190px);height:auto;width:auto;object-fit:contain;margin:0 auto;background:#fff}
+.reader-content:has(.reader-image){display:flex;align-items:center;justify-content:center;overflow:auto}
