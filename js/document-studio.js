@@ -274,7 +274,6 @@ async function recognizePDF(file,worker){
     const pageBlock=document.createElement("div");
     pageBlock.className="studio-source-page";
     const heading=document.createElement("h2");heading.textContent="Страница "+n;
-    pageBlock.append(heading);
 
     if(ocrLines.length){
       // Первая реконструкция: закрываем распознанные строки на копии фона и размещаем редактируемый текст поверх по координатам OCR.
@@ -319,7 +318,7 @@ async function recognizePDF(file,worker){
       const note=document.createElement("p");
       note.className="studio-source-caption";
       note.textContent="Восстановленный макет: распознанные строки можно исправлять прямо на странице. Иллюстрации и фон сохранены; точность зависит от качества скана.";
-      editor.append(pageBlock,note);
+      editor.append(heading,pageBlock,note);
     }else{
       const pageImage=document.createElement("img");
       pageImage.className="studio-source-page-image";
@@ -329,7 +328,7 @@ async function recognizePDF(file,worker){
       const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
       const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
       textBlock.textContent=extracted||"[Текст не распознан]";
-      pageBlock.append(imageCaption,pageImage,textCaption,textBlock);
+      pageBlock.append(heading,imageCaption,pageImage,textCaption,textBlock);
       editor.append(pageBlock);
     }
     canvas.width=canvas.height=0;
@@ -355,7 +354,7 @@ function safeImportedStyle(value){
     if(key==="table-layout"&&!/^(fixed|auto)$/i.test(val))return;
     if(key==="line-height"&&!/^(normal|\\d+(?:\\.\\d+)?(?:px|pt|%)?)$/i.test(val))return;
     if(["color","background-color","border-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
-    if(["width","height","min-height","margin-top","margin-right","margin-bottom","margin-left","text-indent","letter-spacing","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    if(["width","height","min-height","left","top","margin-top","margin-right","margin-bottom","margin-left","text-indent","letter-spacing","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
     if(key==="border-style"&&!/^(none|solid|double|dotted|dashed|groove|ridge|inset|outset)$/i.test(val))return;
     safe.push(key+":"+val);
   });
