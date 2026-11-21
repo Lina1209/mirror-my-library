@@ -722,12 +722,23 @@ async function exportDOCX(){
   say("DOCX создан. Перенесены объединённые ячейки, размеры столбцов и строк, заливка, границы, отступы и вертикальное выравнивание таблиц, а также текст и встроенные изображения. Проверьте итоговый файл: сложные вложенные таблицы и нестандартные стили могут отличаться.");
 }
 async function exportXLSX(){
-  const table=editor.querySelector("table");if(!table){say("В редакторе нет таблицы для экспорта XLSX.");return;}
+  const tables=[...editor.querySelectorAll("table")];
+  if(!tables.length){say("В редакторе нет таблиц для экспорта XLSX.");return;}
   await loadSheetJS();
-  const workbook=window.XLSX.utils.book_new(),sheet=window.XLSX.utils.table_to_sheet(table);
-  window.XLSX.utils.book_append_sheet(workbook,sheet,"Лист1");
+  const workbook=window.XLSX.utils.book_new();
+  tables.forEach((table,index)=>{
+    const sheet=window.XLSX.utils.table_to_sheet(table,{raw:true});
+    let name=table.dataset.sheetName||table.getAttribute("aria-label")||"Таблица "+(index+1);
+    name=String(name).replace(/[\\\\/?*:[\\]]/g," ").trim().slice(0,31)||"Лист "+(index+1);
+    let unique=name,suffix=2;
+    while(workbook.SheetNames.includes(unique)){
+      const tail=" ("+suffix+++ ")";
+      unique=name.slice(0,31-tail.length)+tail;
+    }
+    window.XLSX.utils.book_append_sheet(workbook,sheet,unique);
+  });
   window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
-  say("XLSX создан из редактируемой таблицы.");
+  say("XLSX создан: "+tables.length+" таблиц сохранено на отдельных листах. Проверьте формулы и оформление в Excel.");
 }
 async function exportSelectedFormat(){
   const format=$("studioExportFormat").value;
