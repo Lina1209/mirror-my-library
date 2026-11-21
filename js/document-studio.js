@@ -748,7 +748,7 @@ async function exportDOCX(){
       if(Number.isFinite(marginTop)&&marginTop>0)spacing.before=Math.min(1200,Math.round(marginTop*15));
       if(Number.isFinite(lineHeight)&&lineHeight>0)spacing.line=Math.min(2400,Math.max(120,Math.round(lineHeight*240)));
       if(Object.keys(spacing).length)opts.spacing=spacing;
-      if((Number.isFinite(indentLeft)&&indentLeft>0)||(Number.isFinite(indentRight)&&indentRight>0)||(Number.isFinite(firstLine)&&firstLine!==0))opts.indent={...(indentLeft>0?{left:Math.round(indentLeft*15)}:{}),...(indentRight>0?{right:Math.round(indentRight*15)}:{}),...(firstLine!==0?{firstLine:Math.round(firstLine*15)}:{})};
+      if((Number.isFinite(indentLeft)&&indentLeft>0)||(Number.isFinite(indentRight)&&indentRight>0)||(Number.isFinite(firstLine)&&firstLine!==0))opts.indent={...(indentLeft>0?{left:Math.round(indentLeft*15)}:{}),...(indentRight>0?{right:Math.round(indentRight*15)}:{}),...(Number.isFinite(firstLine)&&firstLine!==0?{firstLine:Math.round(firstLine*15)}:{})};
       children.push(new Paragraph(opts));
     }else [...node.children].forEach(addBlock);
   }
