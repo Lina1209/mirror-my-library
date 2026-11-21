@@ -619,3 +619,14 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .studio-archive-list{width:100%;display:flex;flex-direction:column;gap:6px}
 .studio-archive-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
 .studio-preview-slide-text{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--line);padding:12px;border-radius:8px;margin-bottom:12px}
+
+.pdf-editor-setting{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+.pdf-editor-setting input[type=color]{width:34px;height:28px;padding:2px;border:1px solid var(--line);border-radius:5px;background:var(--panel)}
+.pdf-editor-setting input[type=range]{width:90px;min-width:75px}
+.pdf-editor-setting input[type=number]{width:60px;padding:4px}
+.pdf-editor-setting select{max-width:135px;padding:5px}
+.pdf-editor-toolbar .pdf-editor-note{flex-basis:100%;text-align:center;line-height:1.4}
+.pdf-editor-toolbar .pdf-tool{touch-action:manipulation}
+.pdf-annotation-layer{cursor:crosshair}
+.pdf-annotation-layer[style*="pointer-events: none"]{cursor:default}
+@media(max-width:600px){.pdf-editor-setting input[type=range]{width:72px}.pdf-editor-setting select{max-width:100px}}
