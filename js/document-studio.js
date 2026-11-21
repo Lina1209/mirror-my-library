@@ -298,14 +298,14 @@ function sanitizeImportedHTML(markup){
     }
     const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-sheet-name","data-xlsx-type","data-xlsx-value","data-xlsx-formula","data-xlsx-format","data-xlsx-display","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
     attrs.forEach(attr=>{
-      const key=attr.name.toLowerCase(),value=String(attr.value||"").trim();
+      const key=attr.name.toLowerCase(),rawValue=String(attr.value||""),value=rawValue.trim();
       if(!safeDataAttributes.has(key))return;
       if(["data-docx-table","data-docx-header","data-docx-cant-split","data-page-break"].includes(key)){if(value==="true")node.setAttribute(key,"true");}
       else if(key==="data-docx-width-type"&&["pct","dxa"].includes(value))node.setAttribute(key,value);
       else if(key==="data-docx-height-rule"&&["exact","atLeast","auto"].includes(value))node.setAttribute(key,value);
       else if(key==="data-sheet-name"&&value.length<=100)node.setAttribute(key,value);
       else if(key==="data-xlsx-type"&&["n","s","str","b","d","e"].includes(value))node.setAttribute(key,value);
-      else if(["data-xlsx-value","data-xlsx-formula","data-xlsx-display"].includes(key)&&value.length<=2000)node.setAttribute(key,value);
+      else if(["data-xlsx-value","data-xlsx-formula","data-xlsx-display"].includes(key)&&rawValue.length<=2000)node.setAttribute(key,rawValue);
       else if(key==="data-xlsx-format"&&value.length<=120)node.setAttribute(key,value);
       else if((["data-docx-width","data-docx-height"].includes(key)||key.startsWith("data-page-"))&&/^\d+(?:\.\d+)?$/.test(value))node.setAttribute(key,value);
     });
