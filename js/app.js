@@ -392,7 +392,8 @@ function splitText(text, maxLength = 2800) {
 function updateTextNav(label = "Страница") {
   $("prevBtn").disabled = state.textPage <= 0;
   $("nextBtn").disabled = state.textPage >= state.currentTextPages.length - 1;
-  setReaderStatus(`${label} ${state.textPage + 1} из ${state.currentTextPages.length}`);\n  updateReaderProgress((state.textPage + 1) / Math.max(1, state.currentTextPages.length) * 100, label === "Страница" ? "Позиция в книге" : label);
+  setReaderStatus(`${label} ${state.textPage + 1} из ${state.currentTextPages.length}`);
+  updateReaderProgress((state.textPage + 1) / Math.max(1, state.currentTextPages.length) * 100, label === "Страница" ? "Позиция в книге" : label);
 }
 
 function renderTextPage() {
@@ -445,7 +446,8 @@ async function openHTML(book, progress) {
   state.currentTextPages = [];
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
-  setReaderStatus("HTML-документ");\n  updateReaderProgress(progress?.percent || 0, "Позиция в документе");
+  setReaderStatus("HTML-документ");
+  updateReaderProgress(progress?.percent || 0, "Позиция в документе");
   await saveProgress(book.id, progress?.percent || 0, { page: progress?.page || 0 });
 }
 
@@ -463,7 +465,8 @@ async function openEPUB(book, progress) {
     state.rendition.on("relocated", location => {
       const percentage = location.start?.percentage || 0;
       saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
-      const displayed = location.start?.displayed;\n      const pageDetail = displayed?.total ? `Страница ${displayed.page} из ${displayed.total}` : "Позиция в EPUB";\n      setReaderStatus(pageDetail);\n      updateReaderProgress(percentage * 100, pageDetail);
+      const displayed = location.start?.displayed;\n      const pageDetail = displayed?.total ? `Страница ${displayed.page} из ${displayed.total}` : "Позиция в EPUB";
+      setReaderStatus(pageDetail);\n      updateReaderProgress(percentage * 100, pageDetail);
     });
     await state.rendition.display(progress?.cfi || undefined);
     state.rendition.themes.fontSize(`${state.fontSize}px`);
@@ -615,7 +618,8 @@ async function renderPDFPage() {
   updatePDFToolButtons();
   $("prevBtn").disabled = state.pdfPage <= 1;
   $("nextBtn").disabled = state.pdfPage >= state.pdf.numPages;
-  setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);\n  updateReaderProgress(state.pdfPage / state.pdf.numPages * 100, `Страница ${state.pdfPage} из ${state.pdf.numPages}`);
+  setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);
+  updateReaderProgress(state.pdfPage / state.pdf.numPages * 100, `Страница ${state.pdfPage} из ${state.pdf.numPages}`);
   await saveProgress(state.activeBook.id, state.pdfPage / state.pdf.numPages * 100,
     { page: state.pdfPage });
 }
