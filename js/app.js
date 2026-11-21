@@ -4,6 +4,7 @@ import { extension, extractMetadata, safeHTML, fb2ToHTML } from "./parsers.js";
 const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
+  libraryLayout: localStorage.getItem("mirror-library-layout") === "cards" ? "cards" : "list",
   epub: null, rendition: null, pdf: null, pdfPage: 1,
   fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
   pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
@@ -65,6 +66,11 @@ function renderBooks() {
   $("favoriteCount").textContent = state.books.filter(b => b.favorite).length;
 
   const grid = $("bookGrid");
+  grid.classList.toggle("book-list-view", state.libraryLayout === "list");
+  $("cardsViewBtn")?.classList.toggle("active", state.libraryLayout === "cards");
+  $("listViewBtn")?.classList.toggle("active", state.libraryLayout === "list");
+  $("cardsViewBtn")?.setAttribute("aria-pressed", String(state.libraryLayout === "cards"));
+  $("listViewBtn")?.setAttribute("aria-pressed", String(state.libraryLayout === "list"));
   grid.replaceChildren();
   filtered.forEach(book => {
     const card = document.createElement("article");
@@ -100,6 +106,16 @@ function renderBooks() {
     more.textContent = "···";
     more.title = "Действия";
     more.onclick = () => showDetails(book);
+    const canOpenInStudio = ["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(book.ext);
+    if (canOpenInStudio) {
+      const studio = document.createElement("button");
+      studio.className = "mini-btn studio-shortcut";
+      studio.textContent = "✎";
+      studio.title = "Открыть в студии документов";
+      studio.setAttribute("aria-label", "Открыть " + book.title + " в студии документов");
+      studio.onclick = event => { event.stopPropagation(); sendBookToStudio(book.id); };
+      actions.append(studio);
+    }
     actions.append(favorite, more);
     row.append(title, actions);
 
@@ -126,6 +142,30 @@ function renderBooks() {
     grid.append(card);
   });
   $("emptyState").classList.toggle("hidden", filtered.length > 0);
+}
+
+async function sendBookToStudio(bookId) {
+  const book = await getOne("books", bookId);
+  if (!book) return;
+  const supported = ["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"];
+  if (!supported.includes(book.ext)) {
+    toast("Этот формат можно читать, но перенос в редактор пока не поддерживается.");
+    return;
+  }
+  if (typeof window.openMirrorBookInStudio !== "function") {
+    toast("Студия документов ещё загружается. Попробуйте через мгновение.");
+    return;
+  }
+  const mime = book.type || (book.ext === "pdf" ? "application/pdf" : book.ext === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : book.ext === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : book.ext === "csv" ? "text/csv" : `image/${book.ext === "jpg" ? "jpeg" : book.ext}`);
+  const file = new File([book.data], book.name || book.title || `document.${book.ext}`, { type: mime });
+  try {
+    $("detailsDialog")?.close();
+    await window.openMirrorBookInStudio(file);
+    toast("Документ открыт в студии. Оригинал сохранён в библиотеке.");
+  } catch (error) {
+    console.error("Open in Document Studio:", error);
+    toast("Не удалось передать файл в студию: " + (error?.message || "ошибка"));
+  }
 }
 
 function showDetails(book) {
@@ -172,7 +212,16 @@ function showDetails(book) {
     toast("Книга удалена");
   };
 
-  actions.append(open, download, del);
+  const canOpenInStudio = ["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(book.ext);
+  if (canOpenInStudio) {
+    const studio = document.createElement("button");
+    studio.className = "secondary";
+    studio.textContent = "✎ Открыть в студии";
+    studio.onclick = () => sendBookToStudio(book.id);
+    actions.append(open, studio, download, del);
+  } else {
+    actions.append(open, download, del);
+  }
   body.append(heading, info, actions, downloadHint);
   $("detailsDialog").showModal();
   setTimeout(() => {
@@ -235,7 +284,7 @@ async function importFiles(fileList) {
   let added = 0;
   for (const file of fileList) {
     let ext = extension(file.name);
-    if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv"].includes(ext)) {
+    if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) {
       toast(`Формат не поддерживается: ${file.name}`);
       continue;
     }
@@ -380,6 +429,7 @@ async function openEPUB(book, progress) {
 
 async function openPDF(book, progress) {
   state.pdfAnnotations = book.pdfAnnotations || {};
+  state.pdfFormValues = book.pdfFormValues || {};
   state.pdfImageObjects = book.pdfImageObjects || {};
   state.pdfTextObjects = book.pdfTextObjects || {};
   state.pdfUndo = {};
@@ -431,6 +481,7 @@ async function renderPDFPage() {
   await restorePDFAnnotationLayer(overlay, state.pdfAnnotations[state.pdfPage]);
   renderPDFImageObjects();
   attachPDFAnnotationEvents(overlay);
+  ensurePDFNavigationControls();
   ensurePDFEditorControls();
   updatePDFToolButtons();
   $("prevBtn").disabled = state.pdfPage <= 1;
@@ -441,70 +492,90 @@ async function renderPDFPage() {
 }
 
 
+function ensurePDFNavigationControls(){
+  if($("pdfNavigationPanel")){$("pdfJumpPage").value=String(state.pdfPage);return;}
+  const panel=document.createElement("section");panel.id="pdfNavigationPanel";panel.className="pdf-navigation-panel";
+  const pageLabel=document.createElement("label");pageLabel.textContent="Перейти к странице ";
+  const pageInput=document.createElement("input");pageInput.id="pdfJumpPage";pageInput.type="number";pageInput.min="1";pageInput.value=String(state.pdfPage);pageInput.inputMode="numeric";pageInput.setAttribute("aria-label","Номер страницы PDF");
+  const go=document.createElement("button");go.type="button";go.className="secondary";go.textContent="Перейти";
+  const goPage=async()=>{const value=Math.max(1,Math.min(state.pdf?.numPages||1,Number(pageInput.value)||1));state.pdfPage=value;await renderPDFPage();};
+  go.onclick=goPage;pageInput.onkeydown=e=>{if(e.key==="Enter")goPage();};pageLabel.append(pageInput,go);
+  const searchLabel=document.createElement("label");searchLabel.textContent="Поиск в PDF ";
+  const searchInput=document.createElement("input");searchInput.id="pdfSearchQuery";searchInput.type="search";searchInput.placeholder="Слово или фраза";
+  const searchBtn=document.createElement("button");searchBtn.type="button";searchBtn.className="secondary";searchBtn.textContent="Найти";
+  const results=document.createElement("div");results.id="pdfSearchResults";results.className="pdf-search-results";
+  searchBtn.onclick=async()=>{
+    const query=searchInput.value.trim().toLocaleLowerCase();results.replaceChildren();if(!query||!state.pdf)return;
+    searchBtn.disabled=true;searchBtn.textContent="Ищу…";
+    try{
+      const found=[];
+      for(let pageNum=1;pageNum<=state.pdf.numPages;pageNum++){
+        const page=await state.pdf.getPage(pageNum),content=await page.getTextContent(),text=content.items.map(item=>item.str||"").join(" ");
+        const at=text.toLocaleLowerCase().indexOf(query);
+        if(at>=0)found.push({page:pageNum,text:text.slice(Math.max(0,at-65),Math.min(text.length,at+query.length+100)).replace(/\s+/g," ").trim()});
+      }
+      const summary=document.createElement("small");summary.textContent="Найдено страниц с совпадением: "+found.length;results.append(summary);
+      found.slice(0,100).forEach(item=>{
+        const button=document.createElement("button");button.type="button";button.className="pdf-search-result secondary";
+        button.textContent="Стр. "+item.page+": "+item.text;
+        button.onclick=async()=>{state.pdfPage=item.page;await renderPDFPage();};results.append(button);
+      });
+      if(!found.length){const empty=document.createElement("small");empty.textContent="Совпадений не найдено. Возможно, PDF — скан и требуется OCR.";results.append(empty);}
+    }catch(error){console.warn("PDF search",error);toast("Не удалось выполнить поиск в PDF: "+error.message);}
+    finally{searchBtn.disabled=false;searchBtn.textContent="Найти";}
+  };
+  searchLabel.append(searchInput,searchBtn);
+  const marksButton=document.createElement("button");marksButton.type="button";marksButton.className="secondary";marksButton.textContent="Закладки";
+  const marks=document.createElement("div");marks.id="pdfBookmarksList";marks.className="pdf-bookmarks-list";marks.hidden=true;
+  marksButton.onclick=async()=>{
+    marks.hidden=!marks.hidden;if(marks.hidden)return;marks.replaceChildren();
+    const list=(await getAll("bookmarks")).filter(mark=>mark.bookId===state.activeBook?.id).sort((a,b)=>a.page-b.page);
+    if(!list.length){marks.textContent="Для этого документа закладок пока нет.";return;}
+    list.forEach(mark=>{
+      const row=document.createElement("div");row.className="pdf-bookmark-row";
+      const jump=document.createElement("button");jump.type="button";jump.className="secondary";jump.textContent="Страница "+mark.page;jump.onclick=async()=>{state.pdfPage=mark.page;await renderPDFPage();};
+      const removeBtn=document.createElement("button");removeBtn.type="button";removeBtn.className="secondary";removeBtn.textContent="Удалить";removeBtn.onclick=async()=>{await remove("bookmarks",mark.id);row.remove();toast("Закладка удалена");};
+      row.append(jump,removeBtn);marks.append(row);
+    });
+  };
+  panel.append(pageLabel,searchLabel,marksButton,results,marks);$("readerMeta").append(panel);pageInput.value=String(state.pdfPage);
+}
+
 function ensurePDFEditorControls() {
   if ($("pdfEditorToolbar")) return;
-  const toolbar = document.createElement("div");
-  toolbar.id = "pdfEditorToolbar";
-  toolbar.className = "pdf-editor-toolbar";
-  const tools = [["view","Просмотр"],["text","Текст"],["pen","Перо"],["highlight","Маркер"],["eraser","Ластик"],["cover","Скрыть область"]];
-  tools.forEach(([tool,label]) => {
-    const button=document.createElement("button");
-    button.type="button"; button.className="secondary pdf-tool";
-    button.dataset.pdfTool=tool; button.textContent=label;
-    button.onclick=()=>{state.pdfEditTool=tool;updatePDFToolButtons();if(tool!=="view")toast("Инструмент: "+label);};
-    toolbar.append(button);
-  });
-  const ocrEdit=document.createElement("button");
-  ocrEdit.type="button";ocrEdit.className="secondary";ocrEdit.textContent="Распознать строки для исправления";
-  ocrEdit.onclick=recognizePDFPageLines;
-  const undo=document.createElement("button");
-  undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
-  const save=document.createElement("button");
-  save.type="button";save.className="primary";save.textContent="Сохранить PDF";save.onclick=exportEditedPDF;
-  const downloadLink=document.createElement("a");
-  downloadLink.id="pdfExportDownloadLink";downloadLink.className="secondary";
-  downloadLink.textContent="↓ Скачать готовый PDF";downloadLink.hidden=true;
-  downloadLink.setAttribute("aria-label","Скачать созданную копию PDF");
-  const note=document.createElement("small");
-  note.className="pdf-editor-note";
-  const imageButton=document.createElement("button");
-  imageButton.type="button";imageButton.className="secondary";imageButton.textContent="＋ Изображение";
-  imageButton.onclick=()=>{const input=$("pdfImageInput");input.value="";input.click();};
-  const imageInput=document.createElement("input");
-  imageInput.id="pdfImageInput";imageInput.type="file";imageInput.accept="image/png,image/jpeg,image/webp";
-  imageInput.hidden=true;
-  imageInput.onchange=()=>insertPDFImage(imageInput.files?.[0]);
-  const sizeLabel=document.createElement("label");
-  sizeLabel.className="pdf-editor-setting";sizeLabel.textContent="Размер текста";
-  const sizeInput=document.createElement("input");sizeInput.id="pdfTextSize";sizeInput.type="number";
-  sizeInput.min="8";sizeInput.max="72";sizeInput.value="18";sizeInput.inputMode="numeric";
-  sizeLabel.append(sizeInput);
-  const colorLabel=document.createElement("label");
-  colorLabel.className="pdf-editor-setting";colorLabel.textContent="Цвет";
-  const colorInput=document.createElement("input");colorInput.id="pdfTextColor";colorInput.type="color";colorInput.value="#202020";
-  colorLabel.append(colorInput);
-  note.textContent="Добавляйте текст, рисунки и изображения; «Скрыть область» закрывает фрагмент белой плашкой. Оригинал не меняется.";
-  const fontLabel=document.createElement("label");
-  fontLabel.className="pdf-editor-setting";fontLabel.textContent="Шрифт";
+  const toolbar=document.createElement("div");toolbar.id="pdfEditorToolbar";toolbar.className="pdf-editor-toolbar";
+  const tools=[["view","Выбор"],["text","Текст"],["pen","Перо"],["highlight","Маркер"],["underline","Подчеркнуть"],["strike","Зачеркнуть"],["line","Линия"],["arrow","Стрелка"],["rect","Прямоугольник"],["ellipse","Овал"],["eraser","Ластик"],["cover","Белая плашка"]];
+  tools.forEach(([tool,label])=>{const button=document.createElement("button");button.type="button";button.className="secondary pdf-tool";button.dataset.pdfTool=tool;button.textContent=label;button.onclick=()=>{state.pdfEditTool=tool;updatePDFToolButtons();};toolbar.append(button);});
+  const colorLabel=document.createElement("label");colorLabel.className="pdf-editor-setting";colorLabel.textContent="Цвет линии";
+  const color=document.createElement("input");color.id="pdfDrawColor";color.type="color";color.value="#d13d3d";colorLabel.append(color);
+  const widthLabel=document.createElement("label");widthLabel.className="pdf-editor-setting";widthLabel.textContent="Толщина";
+  const width=document.createElement("input");width.id="pdfDrawWidth";width.type="range";width.min="1";width.max="16";width.value="3";widthLabel.append(width);
+  const sizeLabel=document.createElement("label");sizeLabel.className="pdf-editor-setting";sizeLabel.textContent="Размер текста";
+  const sizeInput=document.createElement("input");sizeInput.id="pdfTextSize";sizeInput.type="number";sizeInput.min="8";sizeInput.max="72";sizeInput.value="18";sizeInput.inputMode="numeric";sizeLabel.append(sizeInput);
+  const textColorLabel=document.createElement("label");textColorLabel.className="pdf-editor-setting";textColorLabel.textContent="Цвет текста";
+  const textColor=document.createElement("input");textColor.id="pdfTextColor";textColor.type="color";textColor.value="#202020";textColorLabel.append(textColor);
+  const fontLabel=document.createElement("label");fontLabel.className="pdf-editor-setting";fontLabel.textContent="Шрифт";
   const fontSelect=document.createElement("select");fontSelect.id="pdfObjectFont";
-  [["Arial,sans-serif","Arial"],["Georgia,serif","Georgia"],["'Times New Roman',serif","Times New Roman"],["Verdana,sans-serif","Verdana"],["'Courier New',monospace","Courier New"]].forEach(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;fontSelect.append(option);});
-  fontLabel.append(fontSelect);
-  const objectColorLabel=document.createElement("label");objectColorLabel.className="pdf-editor-setting";objectColorLabel.textContent="Цвет исправленного текста";
+  [["Arial,sans-serif","Arial"],["Georgia,serif","Georgia"],["'Times New Roman',serif","Times New Roman"],["Verdana,sans-serif","Verdana"],["'Courier New',monospace","Courier New"]].forEach(([value,label])=>fontSelect.append(new Option(label,value)));fontLabel.append(fontSelect);
+  const objectColorLabel=document.createElement("label");objectColorLabel.className="pdf-editor-setting";objectColorLabel.textContent="Цвет текста исправления";
   const objectColor=document.createElement("input");objectColor.type="color";objectColor.id="pdfObjectTextColor";objectColor.value="#202020";objectColorLabel.append(objectColor);
-  const boldLabel=document.createElement("label");boldLabel.className="pdf-editor-setting";
-  const bold=document.createElement("input");bold.type="checkbox";bold.id="pdfObjectBold";boldLabel.append(bold,document.createTextNode(" Жирный"));
-  const italicLabel=document.createElement("label");italicLabel.className="pdf-editor-setting";
-  const italic=document.createElement("input");italic.type="checkbox";italic.id="pdfObjectItalic";italicLabel.append(italic,document.createTextNode(" Курсив"));
+  const boldLabel=document.createElement("label");boldLabel.className="pdf-editor-setting";const bold=document.createElement("input");bold.type="checkbox";bold.id="pdfObjectBold";boldLabel.append(bold,document.createTextNode(" Жирный"));
+  const italicLabel=document.createElement("label");italicLabel.className="pdf-editor-setting";const italic=document.createElement("input");italic.type="checkbox";italic.id="pdfObjectItalic";italicLabel.append(italic,document.createTextNode(" Курсив"));
   const backgroundLabel=document.createElement("label");backgroundLabel.className="pdf-editor-setting";backgroundLabel.textContent="Фон текста";
-  const background=document.createElement("select");background.id="pdfObjectBackground";
-  [["white","Белый"],["transparent","Прозрачный"]].forEach(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;background.append(option);});
-  backgroundLabel.append(background);
+  const background=document.createElement("select");background.id="pdfObjectBackground";[["white","Белый"],["transparent","Прозрачный"]].forEach(([value,label])=>background.append(new Option(label,value)));backgroundLabel.append(background);
   [fontSelect,objectColor,bold,italic,background].forEach(control=>control.addEventListener("change",applyPDFTextObjectStyle));
-  toolbar.append(imageButton,sizeLabel,colorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,ocrEdit,undo,save,downloadLink,note);
+  const imageButton=document.createElement("button");imageButton.type="button";imageButton.className="secondary";imageButton.textContent="＋ Изображение";imageButton.onclick=()=>{$("pdfImageInput").value="";$("pdfImageInput").click();};
+  const imageInput=document.createElement("input");imageInput.id="pdfImageInput";imageInput.type="file";imageInput.accept="image/png,image/jpeg,image/webp";imageInput.hidden=true;imageInput.onchange=()=>insertPDFImage(imageInput.files?.[0]);
+  const ocrEdit=document.createElement("button");ocrEdit.type="button";ocrEdit.className="secondary";ocrEdit.textContent="OCR строки";ocrEdit.onclick=recognizePDFPageLines;
+  const undo=document.createElement("button");undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
+  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;
+  const forms=document.createElement("button");forms.type="button";forms.className="secondary";forms.textContent="Заполнить форму PDF";forms.onclick=openPDFFormEditor;
+  const sign=document.createElement("button");sign.type="button";sign.className="secondary";sign.textContent="✍ Подпись";sign.onclick=openPDFSignaturePad;
+  const downloadLink=document.createElement("a");downloadLink.id="pdfExportDownloadLink";downloadLink.className="secondary";downloadLink.textContent="↓ Скачать PDF";downloadLink.hidden=true;
+  const note=document.createElement("small");note.className="pdf-editor-note";note.textContent="Аннотации сохраняются отдельно; экспорт создаёт копию. Белая плашка только визуально закрывает фрагмент и не удаляет скрытые данные.";
+  toolbar.append(colorLabel,widthLabel,sizeLabel,textColorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,imageButton,forms,sign,ocrEdit,undo,save,downloadLink,note);
   $("readerMeta").append(toolbar,imageInput);
-  const ocr=document.createElement("button");
-  ocr.id="pdfTextBtn";ocr.className="secondary";ocr.textContent="Извлечь текст / OCR";
-  ocr.onclick=extractPDFText;$("readerMeta").append(ocr);
+  const extract=document.createElement("button");extract.id="pdfTextBtn";extract.className="secondary";extract.textContent="Извлечь текст / OCR";extract.onclick=extractPDFText;$("readerMeta").append(extract);
 }
 function updatePDFToolButtons(){
   document.querySelectorAll("[data-pdf-tool]").forEach(button=>{
@@ -540,47 +611,62 @@ async function persistPDFAnnotations(){
   state.activeBook.pdfAnnotations=state.pdfAnnotations;
   await put("books",state.activeBook);
 }
-function attachPDFAnnotationEvents(canvas){
-  let drawing=false,last=null,startPoint=null;
+function attachPDFAnnotationEvents(canvas) {
+  let drawing=false,last=null,startPoint=null,baseline=null;
+  const ratio=Math.min(window.devicePixelRatio||1,2);
   const point=event=>{
-    const rect=canvas.getBoundingClientRect(),ratio=Math.min(window.devicePixelRatio||1,2);
-    return {x:(event.clientX-rect.left)*canvas.width/rect.width/ratio,
-      y:(event.clientY-rect.top)*canvas.height/rect.height/ratio};
+    const rect=canvas.getBoundingClientRect();
+    return {x:(event.clientX-rect.left)*canvas.width/rect.width/ratio,y:(event.clientY-rect.top)*canvas.height/rect.height/ratio};
+  };
+  const style=()=>({color:$("pdfDrawColor")?.value||"#d13d3d",width:Math.max(1,Number($("pdfDrawWidth")?.value)||3)});
+  const drawShape=(ctx,tool,from,to)=>{
+    const {color,width}=style(),dx=to.x-from.x,dy=to.y-from.y;
+    ctx.save();ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=width;
+    if(tool==="cover"){ctx.fillStyle="#fff";ctx.fillRect(from.x,from.y,dx,dy);}
+    else if(tool==="highlight"){ctx.strokeStyle="rgba(255,224,55,.42)";ctx.lineWidth=Math.max(12,width*5);ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();}
+    else if(tool==="line"||tool==="underline"||tool==="strike"){
+      const y=tool==="underline"?Math.max(from.y,to.y):tool==="strike"?(from.y+to.y)/2:to.y;
+      ctx.beginPath();ctx.moveTo(from.x,tool==="line"?from.y:y);ctx.lineTo(to.x,tool==="line"?to.y:y);ctx.stroke();
+    }else if(tool==="rect"){ctx.strokeRect(from.x,from.y,dx,dy);}
+    else if(tool==="ellipse"){ctx.beginPath();ctx.ellipse(from.x+dx/2,from.y+dy/2,Math.abs(dx/2),Math.abs(dy/2),0,0,Math.PI*2);ctx.stroke();}
+    else if(tool==="arrow"){
+      const angle=Math.atan2(dy,dx),head=Math.max(10,width*4);
+      ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(to.x,to.y);ctx.lineTo(to.x-head*Math.cos(angle-Math.PI/6),to.y-head*Math.sin(angle-Math.PI/6));ctx.lineTo(to.x-head*Math.cos(angle+Math.PI/6),to.y-head*Math.sin(angle+Math.PI/6));ctx.closePath();ctx.fill();
+    }
+    ctx.restore();
   };
   canvas.onpointerdown=event=>{
     if(state.pdfEditTool==="view")return;
     event.preventDefault();canvas.setPointerCapture?.(event.pointerId);snapshotPDFAnnotation();
+    startPoint=point(event);last=startPoint;drawing=true;
     if(state.pdfEditTool==="text"){
-      const value=prompt("Введите текст для добавления в PDF:");
-      if(value&&value.trim()){
-        const ctx=canvas.getContext("2d"),p=point(event);
-        const size=Math.max(8,Math.min(72,Number($("pdfTextSize")?.value)||18));
-        const color=$("pdfTextColor")?.value||"#202020";
-        ctx.save();ctx.font=size+"px Arial";ctx.fillStyle=color;ctx.textBaseline="top";
-        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*(size*1.25)));
-        ctx.restore();persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
+      drawing=false;const value=prompt("Введите текст для добавления в PDF:");
+      if(value?.trim()){
+        const ctx=canvas.getContext("2d"),p=startPoint,size=Math.max(8,Math.min(72,Number($("pdfTextSize")?.value)||18));
+        ctx.save();ctx.setTransform(ratio,0,0,ratio,0,0);ctx.font=size+"px Arial";ctx.fillStyle=$("pdfTextColor")?.value||style().color;ctx.textBaseline="top";
+        value.split("\n").forEach((line,index)=>ctx.fillText(line,p.x,p.y+index*(size*1.25)));ctx.restore();
+        persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
       }
       return;
     }
-    drawing=true;last=point(event);startPoint=last;
+    baseline=canvas.getContext("2d").getImageData(0,0,canvas.width,canvas.height);
   };
   canvas.onpointermove=event=>{
     if(!drawing||!last)return;event.preventDefault();
-    const next=point(event),ctx=canvas.getContext("2d");
-    ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
-    if(state.pdfEditTool==="cover"){
-      ctx.fillStyle="#ffffff";ctx.fillRect(startPoint.x,startPoint.y,next.x-startPoint.x,next.y-startPoint.y);
-    }else if(state.pdfEditTool==="eraser"){
-      ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
-    }else if(state.pdfEditTool==="highlight"){
-      ctx.strokeStyle="rgba(255,224,55,.38)";ctx.lineWidth=20;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+    const next=point(event),ctx=canvas.getContext("2d"),tool=state.pdfEditTool;
+    if(["line","arrow","rect","ellipse","underline","strike","cover","highlight"].includes(tool)){
+      ctx.putImageData(baseline,0,0);ctx.setTransform(ratio,0,0,ratio,0,0);drawShape(ctx,tool,startPoint,next);
     }else{
-      ctx.strokeStyle="#d13d3d";ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();
+      ctx.save();ctx.setTransform(ratio,0,0,ratio,0,0);
+      if(tool==="eraser"){ctx.globalCompositeOperation="destination-out";ctx.lineWidth=24;}
+      else{ctx.strokeStyle=style().color;ctx.lineWidth=style().width;}
+      ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();ctx.restore();
     }
-    ctx.restore();last=next;
+    last=next;
   };
   const finish=()=>{
-    if(!drawing)return;drawing=false;last=null;startPoint=null;
+    if(!drawing)return;drawing=false;last=null;startPoint=null;baseline=null;
     persistPDFAnnotations().catch(error=>toast("Ошибка сохранения: "+error.message));
   };
   canvas.onpointerup=finish;canvas.onpointercancel=finish;canvas.onlostpointercapture=finish;
@@ -795,64 +881,65 @@ async function exportEditedPDF(){
     await persistPDFAnnotations();
     await loadGlobalScript(()=>!!window.PDFLib?.PDFDocument,
       "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF");
-    const PDFDocument=window.PDFLib.PDFDocument;
-    const output=await PDFDocument.load(state.activeBook.data.slice(0));
+    const PDFDocument=window.PDFLib.PDFDocument,output=await PDFDocument.load(state.activeBook.data.slice(0));
+    const storedFormValues=state.pdfFormValues||state.activeBook.pdfFormValues||{};
+    if(Object.keys(storedFormValues).length){
+      const form=output.getForm();
+      for(const field of form.getFields()){
+        const name=field.getName(),value=storedFormValues[name];if(value===undefined)continue;
+        try{
+          if(field instanceof window.PDFLib.PDFTextField)field.setText(String(value));
+          else if(field instanceof window.PDFLib.PDFCheckBox){value?field.check():field.uncheck();}
+          else if(field instanceof window.PDFLib.PDFRadioGroup)field.select(String(value));
+          else if(field instanceof window.PDFLib.PDFDropdown)field.select(String(value));
+          else if(field instanceof window.PDFLib.PDFOptionList)Array.isArray(value)?field.select(value):field.select(String(value));
+        }catch(error){console.warn("Skipping unsupported form field",name,error);}
+      }
+    }
     const editedPages=new Set([...Object.keys(state.pdfAnnotations),...Object.keys(state.pdfImageObjects),...Object.keys(state.pdfTextObjects)]);
     for(const pageNumber of editedPages){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
+      const page=output.getPage(index),size=page.getSize();
+      // Draw markup into a transparent overlay so the original PDF text/vector content remains intact.
+      const pdfPage=await state.pdf.getPage(index+1),viewport=pdfPage.getViewport({scale:2});
+      const overlay=document.createElement("canvas");overlay.width=Math.ceil(viewport.width);overlay.height=Math.ceil(viewport.height);
+      const ctx=overlay.getContext("2d");
       const dataUrl=state.pdfAnnotations[pageNumber];
-      const pageCanvas=document.createElement("canvas");
-      const pdfPage=await state.pdf.getPage(index+1);
-      const viewport=pdfPage.getViewport({scale:2});
-      pageCanvas.width=Math.ceil(viewport.width);pageCanvas.height=Math.ceil(viewport.height);
-      const pageContext=pageCanvas.getContext("2d");
-      await pdfPage.render({canvasContext:pageContext,viewport}).promise;
       if(dataUrl){
-        const annotationImage=await createImageBitmap(await (await fetch(dataUrl)).blob());
-        pageContext.drawImage(annotationImage,0,0,pageCanvas.width,pageCanvas.height);
-        annotationImage.close?.();
+        const annotationImage=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("Не удалось прочитать аннотации"));image.src=dataUrl;});
+        ctx.drawImage(annotationImage,0,0,overlay.width,overlay.height);
       }
       for(const object of (state.pdfImageObjects[pageNumber]||[])){
-        const objectImage=await createImageBitmap(await (await fetch(object.src)).blob());
-        pageContext.drawImage(objectImage,object.x*pageCanvas.width,object.y*pageCanvas.height,
-          object.w*pageCanvas.width,object.h*pageCanvas.height);
-        objectImage.close?.();
+        const image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error("Не удалось открыть добавленное изображение"));img.src=object.src;});
+        ctx.drawImage(image,object.x*overlay.width,object.y*overlay.height,object.w*overlay.width,object.h*overlay.height);
       }
       for(const object of (state.pdfTextObjects[pageNumber]||[])){
-        pageContext.save();
-        if(object.background!==false){pageContext.fillStyle=object.backgroundColor||"#ffffff";
-          pageContext.fillRect(object.x*pageCanvas.width,object.y*pageCanvas.height,
-            object.w*pageCanvas.width,object.h*pageCanvas.height);}
-        pageContext.fillStyle=object.color||"#202020";
-        pageContext.font=`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*pageCanvas.height)}px ${object.fontFamily||"Arial"}`;
-        pageContext.textBaseline="top";
-        pageContext.fillText(object.text,object.x*pageCanvas.width,object.y*pageCanvas.height,
-          object.w*pageCanvas.width);
-        pageContext.restore();
+        ctx.save();
+        if(object.background!==false){ctx.fillStyle=object.backgroundColor||"#ffffff";ctx.fillRect(object.x*overlay.width,object.y*overlay.height,object.w*overlay.width,object.h*overlay.height);}
+        ctx.fillStyle=object.color||"#202020";
+        ctx.font=`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*overlay.height)}px ${object.fontFamily||"Arial"}`;
+        ctx.textBaseline="top";ctx.fillText(object.text,object.x*overlay.width,object.y*overlay.height,object.w*overlay.width);ctx.restore();
       }
-      const png=await new Promise(resolve=>pageCanvas.toBlob(resolve,"image/png"));
-      if(!png)throw new Error("Не удалось подготовить изображение страницы PDF.");
-      const embedded=await output.embedPng(await png.arrayBuffer()),page=output.getPage(index),size=page.getSize();
-      page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
-      pageCanvas.width=0;pageCanvas.height=0;
+      if(overlay.width&&overlay.height){
+        const png=await new Promise((resolve,reject)=>overlay.toBlob(blob=>blob?resolve(blob):reject(new Error("Не удалось подготовить аннотации")),"image/png"));
+        const embedded=await output.embedPng(await png.arrayBuffer());
+        page.drawImage(embedded,{x:0,y:0,width:size.width,height:size.height});
+      }
+      overlay.width=0;overlay.height=0;
     }
     const bytes=await output.save();
     if(!bytes||bytes.length<5||String.fromCharCode(...bytes.slice(0,5))!=="%PDF-")throw new Error("Редактор не сформировал корректный PDF-файл.");
+    const base=state.activeBook.name.replace(/\.pdf$/i,""),name=base+"-edited.pdf";
     const data=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
-    const base=state.activeBook.name.replace(/\.pdf$/i,"");
-    const name=base+"-edited.pdf";
-    const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",
-      author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,
-      addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{},pdfTextObjects:{}};
+    const edited={id:makeId(),name,title:state.activeBook.title+" — редакция",author:state.activeBook.author||"",ext:"pdf",type:"application/pdf",data,addedAt:Date.now(),favorite:false,pdfAnnotations:{},pdfImageObjects:{},pdfTextObjects:{}};
     await put("books",edited);
     if(state.pdfExportUrl)URL.revokeObjectURL(state.pdfExportUrl);
     state.pdfExportUrl=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
     const downloadLink=$("pdfExportDownloadLink");
     if(downloadLink){downloadLink.href=state.pdfExportUrl;downloadLink.download=name;downloadLink.hidden=false;downloadLink.click();}
-    await refresh();toast("Новая PDF-копия сохранена в библиотеке. Если загрузка не началась, нажмите «Скачать готовый PDF». Оригинал не изменён.");
+    await refresh();toast("Новая PDF-копия сохранена в библиотеке. Оригинальный текст и векторная графика сохранены, аннотации добавлены поверх.");
   }catch(error){console.error("PDF export:",error);toast("Не удалось сохранить PDF: "+(error.message||"ошибка экспорта"));}
 }
-
 async function loadGlobalScript(test,src,name){
  if(test())return;
  await new Promise((resolve,reject)=>{const el=document.createElement("script");el.src=src;el.onload=resolve;el.onerror=()=>reject(new Error("Не удалось загрузить модуль "+name+". Нужен интернет."));document.head.append(el);});
@@ -969,6 +1056,20 @@ async function extractPDFText() {
   }
 }
 
+async function openImageBook(book){
+  const blob=new Blob([book.data],{type:book.type||"image/"+book.ext});
+  const url=URL.createObjectURL(blob);
+  const image=document.createElement("img");
+  image.className="reader-image";
+  image.alt=book.name||book.title;
+  image.src=url;
+  image.onload=()=>setReaderStatus(image.naturalWidth+" × "+image.naturalHeight);
+  image.onerror=()=>{URL.revokeObjectURL(url);setReaderStatus("Не удалось открыть изображение");};
+  $("readerContent").replaceChildren(image);
+  $("prevBtn").disabled=true;$("nextBtn").disabled=true;
+  setReaderStatus("Изображение");
+  await saveProgress(book.id,100,{page:1});
+}
 async function openBook(bookId) {
   if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
   const book = await getOne("books", bookId);
@@ -1105,6 +1206,16 @@ $("fileInput").onchange = event => {
   event.target.value = "";
 };
 $("searchInput").oninput = renderBooks;
+$("cardsViewBtn")?.addEventListener("click", () => {
+  state.libraryLayout = "cards";
+  localStorage.setItem("mirror-library-layout", "cards");
+  renderBooks();
+});
+$("listViewBtn")?.addEventListener("click", () => {
+  state.libraryLayout = "list";
+  localStorage.setItem("mirror-library-layout", "list");
+  renderBooks();
+});
 
 document.querySelectorAll(".nav-item[data-filter]").forEach(button => {
   button.onclick = () => {
@@ -1154,20 +1265,28 @@ window.addEventListener("resize", () => {
   }
 });
 function syncReaderFullscreen() {
-  const active = document.fullscreenElement === readerView;
+  const active = document.fullscreenElement === readerView || readerView.classList.contains("reader-fullscreen-fallback");
   fullscreenButton.textContent = active ? "⤢" : "⛶";
   fullscreenButton.title = active ? "Выйти из полноэкранного режима" : "На весь экран";
   fullscreenButton.setAttribute("aria-label", fullscreenButton.title);
   readerView.classList.toggle("reader-fullscreen", active);
+  if(state.rendition)requestAnimationFrame(()=>{try{state.rendition.resize();}catch(error){console.warn("Reader fullscreen resize:",error);}});
 }
 fullscreenButton.onclick=async()=>{
   try {
     if(document.fullscreenElement === readerView) await document.exitFullscreen();
+    else if(readerView.classList.contains("reader-fullscreen-fallback")) readerView.classList.remove("reader-fullscreen-fallback","reader-fullscreen");
     else if(readerView.requestFullscreen) await readerView.requestFullscreen();
-    else toast("Полноэкранный режим не поддерживается этим браузером");
-  } catch(e) { toast("Полноэкранный режим недоступен"); }
+    else readerView.classList.add("reader-fullscreen-fallback","reader-fullscreen");
+  } catch(e) {
+    readerView.classList.add("reader-fullscreen-fallback","reader-fullscreen");
+    toast("Включён расширенный режим чтения.");
+  }
+  syncReaderFullscreen();
 };
 document.addEventListener("fullscreenchange", syncReaderFullscreen);
+document.addEventListener("webkitfullscreenchange",syncReaderFullscreen);
+window.addEventListener("orientationchange",()=>{if(readerView.classList.contains("reader-fullscreen"))setTimeout(syncReaderFullscreen,180);});
 const readerMenuButton = $("readerMenuBtn");
 const readerSettingsMenu = $("readerSettingsMenu");
 function closeReaderMenu() {
@@ -1218,7 +1337,7 @@ ttsVoiceSelect?.addEventListener("change", () => localStorage.setItem("mirror-tt
 
 function loadTTSVoices() {
   if (!("speechSynthesis" in window) || !ttsVoiceSelect) return;
-  tts.voices = window.speechSynthesis.getVoices();
+  tts.voices = window.speechSynthesis.getVoices() || [];
   const previous = localStorage.getItem("mirror-tts-voice") || ttsVoiceSelect.value;
   ttsVoiceSelect.replaceChildren(new Option("Автоматический голос", ""));
   tts.voices.forEach(voice => {
@@ -1226,6 +1345,8 @@ function loadTTSVoices() {
     ttsVoiceSelect.add(option);
   });
   if (previous && tts.voices.some(voice => voice.voiceURI === previous)) ttsVoiceSelect.value = previous;
+  const status=$("ttsStatus");
+  if(status)status.textContent=tts.voices.length?("Голоса доступны: "+tts.voices.length):"Системные голоса не обнаружены";
 }
 if ("speechSynthesis" in window) {
   loadTTSVoices();
@@ -1239,35 +1360,47 @@ if ("speechSynthesis" in window) {
 
 async function getCurrentSpeechText() {
   if (!state.activeBook) return "";
-  // PDF: извлекаем настоящий текстовый слой каждой страницы через PDF.js.
-  // Для сканированных страниц без текстового слоя потребуется OCR.
-  if (state.activeBook.ext === "pdf" && state.pdf) {
-    const pages = [];
-    for (let pageNumber = 1; pageNumber <= state.pdf.numPages; pageNumber++) {
-      const page = await state.pdf.getPage(pageNumber);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map(item => (typeof item.str === "string" ? item.str + (item.hasEOL ? "\n" : " ") : ""))
-        .join("")
-        .replace(/[ \t]+/g, " ")
-        .trim();
-      if (pageText) pages.push(pageText);
+  const book=state.activeBook,decode=()=>new TextDecoder("utf-8").decode(book.data||new ArrayBuffer(0));
+  // Read the whole book/document instead of only the visible page.
+  if(["txt","fb2"].includes(book.ext)){
+    const raw=decode();
+    if(book.ext==="fb2"){
+      const parsed=new DOMParser().parseFromString(raw,"application/xml");
+      return parsed.querySelector("body")?.textContent?.replace(/\s+/g," ").trim()||"";
+    }
+    return raw.replace(/\s+/g," ").trim();
+  }
+  if(["html","htm"].includes(book.ext)){
+    const doc=new DOMParser().parseFromString(decode(),"text/html");
+    doc.querySelectorAll("script,style,iframe,svg").forEach(node=>node.remove());
+    return doc.body?.innerText||doc.body?.textContent||"";
+  }
+  if(book.ext==="pdf"&&state.pdf){
+    const pages=[];
+    for(let n=1;n<=state.pdf.numPages;n++){
+      const page=await state.pdf.getPage(n),textContent=await page.getTextContent();
+      const pageText=textContent.items.map(item=>typeof item.str==="string"?item.str+(item.hasEOL?"\n":" "):"").join("").replace(/[ \t]+/g," ").trim();
+      if(pageText)pages.push(pageText);
     }
     return pages.join("\n\n");
   }
-  if (state.rendition?.getContents) {
-    try {
-      const epubText = state.rendition.getContents()
-        .map(item => item.document?.body?.innerText || item.document?.body?.textContent || "")
-        .join("\\n")
-        .trim();
-      if (epubText) return epubText;
-    } catch (error) { console.warn("EPUB speech text:", error); }
+  if(state.epub){
+    try{
+      const spine=state.epub.spine?.items||[],sections=[];
+      for(const item of spine){
+        try{
+          const doc=await item.load(state.epub.load.bind(state.epub));
+          const text=doc?.body?.innerText||doc?.body?.textContent||"";
+          if(text.trim())sections.push(text.trim());
+          item.unload?.();
+        }catch(error){console.warn("EPUB chapter speech:",error);}
+      }
+      if(sections.length)return sections.join("\n\n");
+    }catch(error){console.warn("EPUB speech extraction:",error);}
   }
-  return $("readerContent")?.innerText?.trim() || $("readerContent")?.textContent?.trim() || "";
+  return $("readerContent")?.innerText?.trim()||$("readerContent")?.textContent?.trim()||"";
 }
-
-function splitSpeechText(text, maxLength = 1800) {
+function splitSpeechText(text, maxLength = 1300) {
   const chunks = [];
   let remaining = text.replace(/\s+/g, " ").trim();
   while (remaining.length) {
@@ -1283,7 +1416,7 @@ function splitSpeechText(text, maxLength = 1800) {
 
 function speakNextChunk(token) {
   if (token !== tts.token || !tts.queue.length) {
-    if (token === tts.token) { tts.utterance = null; updateTTSButtons(); }
+    if (token === tts.token) { tts.utterance = null; tts.active=false; updateTTSButtons(); }
     return;
   }
   const text = tts.queue.shift();
@@ -1292,26 +1425,27 @@ function speakNextChunk(token) {
   const voice = tts.voices.find(item => item.voiceURI === selectedVoice);
   if (selectedVoice && voice) {
     utterance.voice = voice;
-    utterance.lang = utterance.voice.lang;
+    utterance.lang = voice.lang || "ru-RU";
   } else {
     utterance.lang = /[А-Яа-яЁё]/.test(text) ? "ru-RU" : "en-US";
   }
   utterance.rate = Number($("ttsRate")?.value || 0.9);
-  utterance.onstart = updateTTSButtons;
+  utterance.onstart = () => { tts.active=true; updateTTSButtons(); };
   utterance.onend = () => {
-    if (token === tts.token) speakNextChunk(token);
+    if (token === tts.token) { tts.active=false; speakNextChunk(token); }
   };
   utterance.onerror = event => {
     if (token !== tts.token || event.error === "canceled" || event.error === "interrupted") return;
     tts.queue = [];
+    tts.active=false;
     updateTTSButtons();
-    toast("Не удалось продолжить озвучивание: " + event.error);
+    toast("Озвучивание остановилось (" + event.error + "). Проверьте голос/движок синтеза в настройках устройства.");
   };
   tts.utterance = utterance;
-  window.speechSynthesis.speak(utterance);
+  try { window.speechSynthesis.resume(); window.speechSynthesis.speak(utterance); }
+  catch(error){console.error("Speech synthesis:",error);tts.queue=[];toast("Движок озвучивания не запустился.");}
   updateTTSButtons();
 }
-
 function updateTTSButtons() {
   if (!ttsPlayButton) return;
   const speaking = window.speechSynthesis?.speaking || false;
@@ -1321,47 +1455,48 @@ function updateTTSButtons() {
   ttsStopButton.disabled = !speaking && !paused && !hasQueue;
   ttsPauseButton.textContent = paused ? "▶ Продолжить" : "Ⅱ Пауза";
   ttsPlayButton.textContent = (speaking || hasQueue) && !paused ? "🔊 Читает…" : "🔊 Читать";
+  const status=$("ttsStatus");
+  if(status)status.textContent=paused?"Пауза":speaking?"Идёт озвучивание":tts.voices.length?"Голос готов":"Нет списка голосов";
 }
-
 function stopBookSpeech() {
   if (!("speechSynthesis" in window)) return;
   tts.token++;
+  tts.active=false;
   tts.queue = [];
   window.speechSynthesis.cancel();
   tts.utterance = null;
   updateTTSButtons();
 }
-
 async function startBookSpeech() {
   if (!("speechSynthesis" in window)) {
-    toast("Этот браузер не поддерживает озвучивание.");
+    toast("В этом браузере нет Web Speech API. Попробуйте Chrome на Android и проверьте установленный движок синтеза речи.");
     return;
   }
-  if (!state.activeBook) {
-    toast("Сначала откройте книгу.");
-    return;
-  }
+  if (!state.activeBook) { toast("Сначала откройте книгу."); return; }
   stopBookSpeech();
-  const playToken = tts.token;
-  let text = "";
+  const playToken=tts.token;
+  // Prime mobile engines directly during the user's tap.
   try {
-    text = await getCurrentSpeechText();
-  } catch (error) {
-    console.error("Не удалось извлечь текст для озвучивания:", error);
-    toast("Не удалось извлечь текст из документа.");
-    return;
+    const unlock=new SpeechSynthesisUtterance(" ");
+    unlock.volume=0;unlock.lang="ru-RU";
+    window.speechSynthesis.speak(unlock);
+    window.speechSynthesis.resume();
+  } catch(e){console.warn("Speech unlock:",e);}
+  let text="";
+  try { text=await getCurrentSpeechText(); }
+  catch(error){console.error("Не удалось извлечь текст для озвучивания:",error);toast("Не удалось извлечь текст из документа.");return;}
+  if(playToken!==tts.token)return;
+  text=String(text||"").replace(/\s+/g," ").trim();
+  if(!text){
+    toast(state.activeBook.ext==="pdf"?"В PDF не найден текстовый слой. Для сканированных страниц сначала запустите OCR.":"Не удалось получить текст этой книги для озвучивания.");
+    stopBookSpeech();return;
   }
-  if (playToken !== tts.token) return;
-  if (!text) {
-    toast(state.activeBook.ext === "pdf"
-      ? "В этом PDF не найден текстовый слой. Для сканированных страниц сначала выполните OCR."
-      : "На этой странице пока нет текста для озвучивания.");
-    return;
-  }
-  tts.queue = splitSpeechText(text);
+  window.speechSynthesis.cancel();
+  tts.queue=splitSpeechText(text,1200);
+  if(!tts.voices.length)loadTTSVoices();
+  window.speechSynthesis.resume();
   speakNextChunk(playToken);
 }
-
 ttsPlayButton?.addEventListener("click", startBookSpeech);
 ttsPauseButton?.addEventListener("click", () => {
   if (!("speechSynthesis" in window)) return;
@@ -1372,3 +1507,85 @@ ttsPauseButton?.addEventListener("click", () => {
 ttsStopButton?.addEventListener("click", stopBookSpeech);
 $("backBtn")?.addEventListener("click", stopBookSpeech);
 window.addEventListener("beforeunload", stopBookSpeech);
+async function openPDFFormEditor(){
+  if(!state.pdf||!state.activeBook)return;
+  try{
+    await loadGlobalScript(()=>!!window.PDFLib?.PDFDocument,"https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF-форм");
+    const doc=await window.PDFLib.PDFDocument.load(state.activeBook.data.slice(0)),form=doc.getForm(),fields=form.getFields();
+    let panel=$("pdfFormPanel");if(!panel){panel=document.createElement("section");panel.id="pdfFormPanel";panel.className="pdf-form-panel";$("readerMeta").append(panel);}
+    panel.replaceChildren();
+    const title=document.createElement("h3");title.textContent="Интерактивные поля PDF";panel.append(title);
+    if(!fields.length){const info=document.createElement("p");info.textContent="В этом документе не обнаружены интерактивные поля формы. Для подписи можно использовать инструмент «Перо» или добавить изображение подписи.";panel.append(info);panel.classList.remove("hidden");return;}
+    const formValues=state.pdfFormValues||{},rows=[];
+    fields.forEach(field=>{
+      const name=field.getName(),type=field.constructor?.name||"Field",row=document.createElement("label");row.className="pdf-form-field";
+      const label=document.createElement("span");label.textContent=name+" · "+type;row.append(label);
+      let control,kind="text",value=formValues[name];
+      if(field instanceof window.PDFLib.PDFTextField){
+        control=document.createElement("textarea");control.rows=2;kind="text";if(value===undefined)value=field.getText()||"";
+      }else if(field instanceof window.PDFLib.PDFCheckBox){
+        control=document.createElement("input");control.type="checkbox";kind="checkbox";if(value===undefined)value=field.isChecked();
+      }else if(field instanceof window.PDFLib.PDFRadioGroup){
+        control=document.createElement("select");kind="radio";const options=field.getOptions();options.forEach(opt=>control.append(new Option(opt,opt)));if(value===undefined)value=field.getSelected()||"";
+      }else if(field instanceof window.PDFLib.PDFDropdown||field instanceof window.PDFLib.PDFOptionList){
+        control=document.createElement("select");kind=field instanceof window.PDFLib.PDFOptionList?"list":"dropdown";const opts=field.getOptions();if(kind==="list")control.multiple=!!field.isMultiselect?.();opts.forEach(opt=>control.append(new Option(opt,opt)));if(value===undefined)value=field.getSelected?.()||"";
+      }else{
+        const note=document.createElement("small");note.textContent="Тип поля не поддерживается для редактирования в этой панели.";row.append(note);panel.append(row);return;
+      }
+      control.dataset.fieldName=name;control.dataset.fieldKind=kind;
+      if(kind==="checkbox")control.checked=!!value;
+      else if(kind==="list"&&Array.isArray(value)){[...control.options].forEach(option=>option.selected=value.includes(option.value));}
+      else if(value!==undefined)control.value=String(value);
+      row.append(control);panel.append(row);rows.push(control);
+    });
+    const actions=document.createElement("div");actions.className="pdf-form-actions";
+    const apply=document.createElement("button");apply.type="button";apply.className="primary";apply.textContent="Сохранить значения формы";
+    apply.onclick=async()=>{
+      const values={};
+      rows.forEach(control=>{
+        const name=control.dataset.fieldName,kind=control.dataset.fieldKind;
+        values[name]=kind==="checkbox"?control.checked:kind==="list"?[...control.selectedOptions].map(option=>option.value):control.value;
+      });
+      state.pdfFormValues=values;state.activeBook.pdfFormValues=values;
+      await put("books",state.activeBook);toast("Значения формы сохранены локально. При экспорте будут перенесены в PDF.");
+    };
+    const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Скрыть";close.onclick=()=>panel.classList.add("hidden");
+    actions.append(apply,close);panel.append(actions);panel.classList.remove("hidden");
+  }catch(error){console.error("PDF form editor:",error);toast("Не удалось открыть PDF-форму: "+error.message);}
+}
+
+function openPDFSignaturePad(){
+  if(!state.pdfOverlay||!state.activeBook){toast("Сначала откройте PDF.");return;}
+  let panel=$("pdfSignaturePanel");
+  if(!panel){
+    panel=document.createElement("section");panel.id="pdfSignaturePanel";panel.className="pdf-signature-panel";
+    const heading=document.createElement("h3");heading.textContent="Рукописная подпись";
+    const instruction=document.createElement("p");instruction.textContent="Нарисуйте подпись пальцем или мышью. Затем добавьте её на текущую страницу — подпись можно будет перемещать и менять размер.";
+    const canvas=document.createElement("canvas");canvas.id="pdfSignatureCanvas";canvas.width=900;canvas.height=280;
+    canvas.className="pdf-signature-canvas";
+    const actions=document.createElement("div");actions.className="pdf-form-actions";
+    const clear=document.createElement("button");clear.type="button";clear.className="secondary";clear.textContent="Очистить";clear.onclick=()=>canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height);
+    const place=document.createElement("button");place.type="button";place.className="primary";place.textContent="Вставить на страницу";
+    place.onclick=async()=>{
+      const signature=canvas.toDataURL("image/png");
+      const blank=document.createElement("canvas");blank.width=canvas.width;blank.height=canvas.height;
+      if(canvas.toDataURL()===blank.toDataURL()){toast("Сначала нарисуйте подпись.");return;}
+      const image=new Image();image.src=signature;
+      await new Promise(resolve=>image.onload=resolve);
+      const ratio=image.width/image.height;let w=.38,h=w/ratio;if(h>.18){h=.18;w=h*ratio;}
+      const list=state.pdfImageObjects[state.pdfPage]||(state.pdfImageObjects[state.pdfPage]=[]);
+      list.push({id:makeId(),src:signature,x:.31,y:.72,w,h});
+      state.activeBook.pdfImageObjects=state.pdfImageObjects;await put("books",state.activeBook);
+      renderPDFImageObjects();panel.classList.add("hidden");toast("Подпись вставлена. Переместите её в нужное место и измените размер.");
+    };
+    const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Закрыть";close.onclick=()=>panel.classList.add("hidden");
+    actions.append(clear,place,close);panel.append(heading,instruction,canvas,actions);$("readerMeta").append(panel);
+    let drawing=false,last=null;
+    const point=e=>{const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*canvas.width/r.width,y:(e.clientY-r.top)*canvas.height/r.height};};
+    canvas.onpointerdown=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture(e.pointerId);};
+    canvas.onpointermove=e=>{if(!drawing)return;const p=point(e),ctx=canvas.getContext("2d");ctx.strokeStyle="#171717";ctx.lineWidth=6;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;};
+    const finish=()=>{drawing=false;last=null;};canvas.onpointerup=finish;canvas.onpointercancel=finish;
+  }
+  panel.classList.remove("hidden");
+}
+

@@ -6,6 +6,149 @@ const editor = $("studioEditor");
 const status = $("studioStatus");
 const progress = $("studioProgress");
 const fileInput = $("studioFile");
+const studioPreview = {file:null,pdf:null,page:1,zoom:"fit",renderTask:null,objectUrl:null};
+const previewSurface=$("studioPreviewSurface");
+const previewMeta=$("studioPreviewMeta");
+const previewControls=$("studioPreviewControls");
+const previewDownload=$("studioPreviewDownload");
+const previewZoom=$("studioPreviewZoom");
+function previewSay(message){if(previewMeta)previewMeta.textContent=message;}
+function previewSetPageLabel(){const total=studioPreview.pdf?.numPages||1;$("studioPreviewPage").textContent=studioPreview.pdf?"Страница "+studioPreview.page+" из "+total:"";}
+function previewDownloadOriginal(){
+  const file=studioPreview.file;if(!file)return;
+  const url=URL.createObjectURL(file),a=document.createElement("a");a.href=url;a.download=file.name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+async function previewLoadPDF(file){
+  const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+  studioPreview.pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+  studioPreview.page=1;previewControls.hidden=false;await previewRenderPDF();
+  previewSay("PDF · "+studioPreview.pdf.numPages+" страниц · оригинал отображается без OCR.");
+}
+async function previewRenderPDF(){
+  if(!studioPreview.pdf)return;
+  const page=await studioPreview.pdf.getPage(studioPreview.page),base=page.getViewport({scale:1});
+  const surfaceW=Math.max(300,previewSurface.clientWidth-24);
+  const zoom=studioPreview.zoom==="fit"?Math.min(1.6,surfaceW/base.width):Number(studioPreview.zoom);
+  const viewport=page.getViewport({scale:zoom}),canvas=document.createElement("canvas"),ratio=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=Math.round(viewport.width*ratio);canvas.height=Math.round(viewport.height*ratio);
+  canvas.style.width=Math.round(viewport.width)+"px";canvas.style.height=Math.round(viewport.height)+"px";
+  await page.render({canvasContext:canvas.getContext("2d"),viewport,transform:ratio===1?null:[ratio,0,0,ratio,0,0]}).promise;
+  previewSurface.replaceChildren(canvas);previewSetPageLabel();
+  $("studioPreviewPrev").disabled=studioPreview.page<=1;$("studioPreviewNext").disabled=studioPreview.page>=studioPreview.pdf.numPages;
+}
+async function openStudioPreview(file){
+  if(!file)return;
+  studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
+  previewDownload.disabled=false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
+  const ext=extOf(file),type=file.type||"";
+  try{
+    if(ext==="pdf"||type==="application/pdf"){await previewLoadPDF(file);return;}
+    if(type.startsWith("image/")||["png","jpg","jpeg","webp","gif","bmp","tif","tiff"].includes(ext)){
+      const img=document.createElement("img");img.className="studio-preview-image";img.alt=file.name;
+      studioPreview.objectUrl=URL.createObjectURL(file);img.src=studioPreview.objectUrl;
+      img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%";
+      img.onload=()=>previewSay(file.name+" · "+img.naturalWidth+" × "+img.naturalHeight+" · оригинальное изображение");
+      previewSurface.replaceChildren(img);return;
+    }
+    if(["txt","md","csv","log","json","xml"].includes(ext)||type.startsWith("text/")){
+      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=await file.text();previewSurface.replaceChildren(pre);previewSay(file.name+" · текстовый просмотр");return;
+    }
+    if(["html","htm"].includes(ext)){
+      const content=sanitizeImportedHTML(await file.text()),frame=document.createElement("iframe");frame.className="studio-preview-frame";frame.setAttribute("sandbox","");frame.srcdoc=content;previewSurface.replaceChildren(frame);previewSay(file.name+" · безопасный HTML-предпросмотр");return;
+    }
+    if(ext==="docx"){
+      await loadScript(()=>!!window.mammoth,"https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js","DOCX viewer");
+      const result=await window.mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
+      previewSurface.innerHTML=sanitizeImportedHTML(result.value);previewSay(file.name+" · предпросмотр DOCX (возможны отличия от Word)");return;
+    }
+    if(["xlsx","xls","csv"].includes(ext)){
+      await loadScript(()=>!!window.XLSX,"https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js","табличный просмотр");
+      const workbook=window.XLSX.read(await file.arrayBuffer(),{type:"array"}),tabs=document.createElement("div");tabs.className="studio-preview-sheet-tabs";
+      const sheetArea=document.createElement("div");sheetArea.className="studio-preview-sheet";
+      const showSheet=name=>{sheetArea.innerHTML=window.XLSX.utils.sheet_to_html(workbook.Sheets[name],{editable:false});};
+      workbook.SheetNames.forEach((name,index)=>{const b=document.createElement("button");b.type="button";b.className="secondary";b.textContent=name;b.onclick=()=>showSheet(name);tabs.append(b);if(index===0)showSheet(name);});
+      previewSurface.replaceChildren(tabs,sheetArea);previewSay(file.name+" · "+workbook.SheetNames.length+" лист(ов)");return;
+    }
+    if(["pptx","odt","odp","zip"].includes(ext)){
+      await loadScript(()=>!!window.JSZip,"https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js","ZIP/Office preview");
+      const archive=await window.JSZip.loadAsync(file),listing=document.createElement("div");
+      if(ext==="zip"){
+        const files=Object.values(archive.files).filter(entry=>!entry.dir);
+        const list=document.createElement("div");list.className="studio-archive-list";
+        files.forEach(entry=>{
+          const row=document.createElement("div"),name=document.createElement("span"),button=document.createElement("button");
+          row.className="studio-archive-item";name.textContent=entry.name;button.type="button";button.className="secondary";button.textContent="Скачать";
+          button.onclick=async()=>{const blob=await entry.async("blob"),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=entry.name.split("/").pop()||"file";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);};
+          row.append(name,button);list.append(row);
+        });
+        previewSurface.replaceChildren(list);previewSay("ZIP-архив · "+files.length+" файлов. Оригинальный архив не изменяется.");return;
+      }
+      const textParts=[];
+      if(ext==="pptx"){
+        const slides=Object.keys(archive.files).filter(name=>/^ppt\/slides\/slide\d+\.xml$/i.test(name)).sort((a,b)=>Number(a.match(/slide(\d+)/i)[1])-Number(b.match(/slide(\d+)/i)[1]));
+        for(const name of slides){
+          const xml=await archive.file(name).async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
+          const heading=document.createElement("h3");heading.textContent="Слайд "+name.match(/slide(\d+)/i)[1];
+          const body=document.createElement("div");body.className="studio-preview-slide-text";
+          const paragraphs=[...doc.getElementsByTagNameNS("*","p")].map(p=>[...p.getElementsByTagNameNS("*","t")].map(t=>t.textContent).join("")).filter(Boolean);
+          body.textContent=paragraphs.join("\n");
+          listing.append(heading,body);textParts.push(body.textContent);
+        }
+        previewSurface.replaceChildren(listing);previewSay(file.name+" · текстовый предпросмотр "+slides.length+" слайдов (не отображает исходный дизайн)");return;
+      }
+      const contentFile=archive.file("content.xml");
+      if(!contentFile)throw new Error("В архиве не найден content.xml");
+      const xml=await contentFile.async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
+      if(doc.querySelector("parsererror"))throw new Error("XML внутри документа повреждён");
+      const paragraphs=[...doc.getElementsByTagNameNS("*","p"),...doc.getElementsByTagNameNS("*","h")];
+      paragraphs.forEach(p=>{const line=document.createElement(p.localName==="h"?"h3":"p");line.textContent=p.textContent||"";listing.append(line);});
+      previewSurface.replaceChildren(listing);previewSay(file.name+" · текстовый просмотр ODF; оригинальное форматирование не полностью воспроизводится");return;
+    }
+    if(ext==="rtf"){
+      const raw=await file.text(),plain=raw.replace(/\\'[0-9a-f]{2}/gi,"").replace(/\\[a-z]+-?\d* ?/gi,"").replace(/[{}]/g,"").replace(/\\\\/g,"\\");
+      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=plain;previewSurface.replaceChildren(pre);previewSay(file.name+" · упрощённый просмотр RTF");return;
+    }
+    previewSurface.innerHTML='<div class="studio-preview-empty">Формат '+escapeHTML(ext.toUpperCase()||"неизвестен")+' пока нельзя визуально открыть в браузере. Оригинал можно скачать; доступные инструменты обработки — ниже.</div>';
+    previewSay(file.name+" · формат не поддерживается для визуального просмотра.");
+  }catch(error){console.error("Document preview:",error);previewSurface.textContent="Ошибка просмотра: "+error.message;previewSay("Не удалось открыть файл. Оригинал доступен для скачивания.");}
+}
+
+// Accept a book already stored in the local library and open it in the separate editor workspace.
+window.openMirrorBookInStudio = async function(file) {
+  if (!(file instanceof File)) throw new TypeError("Не удалось получить файл из библиотеки.");
+  const assignFile = input => {
+    if (!input) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+  };
+  $("openStudioBtn")?.click();
+  assignFile(fileInput);
+  assignFile($("studioPreviewFile"));
+  state.sourceName = file.name;
+  state.sourceType = file.type || "";
+  if (fileInput) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  await openStudioPreview(file);
+  previewDownload.disabled = false;
+  previewSay(file.name + " · файл из библиотеки. Оригинал не изменяется; OCR и редактирование запускаются отдельно.");
+  $("studioPreviewMeta")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+};
+
+$("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
+$("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+$("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+previewDownload?.addEventListener("click",previewDownloadOriginal);
+$("studioPreviewPrev")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page>1){studioPreview.page--;previewRenderPDF();}});
+$("studioPreviewNext")?.addEventListener("click",()=>{if(studioPreview.pdf&&studioPreview.page<studioPreview.pdf.numPages){studioPreview.page++;previewRenderPDF();}});
+previewZoom?.addEventListener("change",()=>{studioPreview.zoom=previewZoom.value;if(studioPreview.pdf)previewRenderPDF();else{const img=previewSurface.querySelector("img");if(img)img.style.maxWidth=studioPreview.zoom==="fit"?"100%":(Number(studioPreview.zoom)*100)+"%";}});
+$("studioPreviewFullscreen")?.addEventListener("click",async()=>{
+  const box=$("studioPreviewSurface").closest(".studio-preview-card");
+  try{if(document.fullscreenElement===box)await document.exitFullscreen();else if(box.requestFullscreen)await box.requestFullscreen();else box.classList.toggle("studio-preview-expanded");}
+  catch{box.classList.toggle("studio-preview-expanded");}
+});
+window.addEventListener("resize",()=>{if(studioPreview.pdf&&studioPreview.zoom==="fit")previewRenderPDF();});
 const languages = $("studioLanguage");
 const savedOCRLanguage = localStorage.getItem("mirror-studio-language");
 if (savedOCRLanguage && [...languages.options].some(option => option.value === savedOCRLanguage)) languages.value = savedOCRLanguage;
@@ -133,7 +276,7 @@ async function recognizePDF(file,worker){
   }
 }
 function safeImportedStyle(value){
-  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","color","background-color","margin-top","margin-bottom","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
+  const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout"]);
   const safe=[];
   String(value||"").split(";").forEach(part=>{
     const i=part.indexOf(":");if(i<1)return;
@@ -144,8 +287,9 @@ function safeImportedStyle(value){
     if(key==="font-weight"&&!/^(normal|bold|[1-9]00)$/i.test(val))return;
     if(key==="font-style"&&!/^(normal|italic|oblique)$/i.test(val))return;
     if(key==="table-layout"&&!/^(fixed|auto)$/i.test(val))return;
+    if(key==="line-height"&&!/^(normal|\\d+(?:\\.\\d+)?(?:px|pt|%)?)$/i.test(val))return;
     if(["color","background-color","border-color"].includes(key)&&!(/^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{3,20})$/i.test(val)))return;
-    if(["width","height","min-height","margin-top","margin-bottom","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
+    if(["width","height","min-height","margin-top","margin-right","margin-bottom","margin-left","text-indent","letter-spacing","padding","padding-top","padding-right","padding-bottom","padding-left","border-width"].includes(key)&&!/^-?\d+(?:\.\d+)?(?:px|pt|mm|cm|in|%)?$/.test(val))return;
     if(key==="border-style"&&!/^(none|solid|double|dotted|dashed|groove|ridge|inset|outset)$/i.test(val))return;
     safe.push(key+":"+val);
   });
@@ -161,7 +305,7 @@ function sanitizeImportedHTML(markup){
     const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
     if(style)node.setAttribute("style",style);
     const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
-    const safeClasses=new Set(["studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
+    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-page-break","studio-data-table"]);
     const keptClasses=classValue.split(/\s+/).filter(name=>safeClasses.has(name));
     if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
@@ -174,14 +318,18 @@ function sanitizeImportedHTML(markup){
     if(["TD","TH"].includes(node.tagName)){
       ["rowspan","colspan"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isInteger(n)&&n>=1&&n<=100)node.setAttribute(key,String(n));});
     }
-    const safeDataAttributes=new Set(["data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
+    const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-sheet-name","data-xlsx-type","data-xlsx-value","data-xlsx-formula","data-xlsx-format","data-xlsx-display","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
     attrs.forEach(attr=>{
-      const key=attr.name.toLowerCase(),value=String(attr.value||"").trim();
+      const key=attr.name.toLowerCase(),rawValue=String(attr.value||""),value=rawValue.trim();
       if(!safeDataAttributes.has(key))return;
       if(["data-docx-table","data-docx-header","data-docx-cant-split","data-page-break"].includes(key)){if(value==="true")node.setAttribute(key,"true");}
       else if(key==="data-docx-width-type"&&["pct","dxa"].includes(value))node.setAttribute(key,value);
       else if(key==="data-docx-height-rule"&&["exact","atLeast","auto"].includes(value))node.setAttribute(key,value);
-      else if(["data-docx-width","data-docx-height"].includes(key)&&/^\d+(?:\.\d+)?$/.test(value))node.setAttribute(key,value);
+      else if(key==="data-sheet-name"&&value.length<=100)node.setAttribute(key,value);
+      else if(key==="data-xlsx-type"&&["n","s","str","b","d","e"].includes(value))node.setAttribute(key,value);
+      else if(["data-xlsx-value","data-xlsx-formula","data-xlsx-display"].includes(key)&&rawValue.length<=2000)node.setAttribute(key,rawValue);
+      else if(key==="data-xlsx-format"&&value.length<=120)node.setAttribute(key,value);
+      else if((["data-docx-width","data-docx-height"].includes(key)||key.startsWith("data-page-"))&&/^\d+(?:\.\d+)?$/.test(value))node.setAttribute(key,value);
     });
   });
   return doc.body.innerHTML;
@@ -201,6 +349,30 @@ function setDocxBorder(element,side,xmlBorder){
   const width=sz?Math.max(.5,Math.min(8,sz/6)):1;
   let color=xmlAttr(xmlBorder,"color");if(!/^[0-9a-f]{6}$/i.test(color))color="777777";
   element.style["border"+cssSide]=width+"px "+cssStyle+" #"+color;
+}
+function restoreDocxPageSettings(xmlText){
+  const xml=new DOMParser().parseFromString(xmlText,"application/xml");
+  if(xml.querySelector("parsererror"))throw new Error("Некорректные настройки страницы DOCX");
+  const sectPr=xml.getElementsByTagNameNS(WORD_NS,"sectPr")[0];
+  if(!sectPr)return false;
+  const pgSz=xmlKid(sectPr,"pgSz"),pgMar=xmlKid(sectPr,"pgMar");
+  const twips=(node,key,fallback)=>{const raw=xmlAttr(node,key);const value=raw===""?fallback:Number(raw);return Number.isFinite(value)&&value>=0?Math.round(value):fallback;};
+  const settings={
+    width:twips(pgSz,"w",11906),height:twips(pgSz,"h",16838),
+    top:twips(pgMar,"top",1134),right:twips(pgMar,"right",850),
+    bottom:twips(pgMar,"bottom",1134),left:twips(pgMar,"left",850),
+    header:twips(pgMar,"header",567),footer:twips(pgMar,"footer",567)
+  };
+  let marker=editor.querySelector(".studio-docx-page-settings");
+  if(!marker){marker=document.createElement("div");marker.className="studio-docx-page-settings";editor.prepend(marker);}
+  Object.entries(settings).forEach(([key,value])=>marker.dataset["page"+key[0].toUpperCase()+key.slice(1)]=String(value));
+  return true;
+}
+function readDocxPageSettings(){
+  const marker=editor.querySelector(".studio-docx-page-settings");
+  const number=(key,fallback)=>{const raw=marker?.dataset[key];if(raw===undefined||raw==="")return fallback;const value=Number(raw);return Number.isFinite(value)&&value>=0?Math.round(value):fallback;};
+  return {width:number("pageWidth",11906),height:number("pageHeight",16838),
+    top:number("pageTop",1134),right:number("pageRight",850),bottom:number("pageBottom",1134),left:number("pageLeft",850),header:number("pageHeader",567),footer:number("pageFooter",567)};
 }
 function restoreDocxTableGeometry(xmlText){
   const xml=new DOMParser().parseFromString(xmlText,"application/xml");
@@ -297,7 +469,7 @@ async function importDOCX(file){
   try{
     await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение структуры таблиц DOCX");
     const zip=await window.JSZip.loadAsync(bytes.slice(0)),documentXml=await zip.file("word/document.xml")?.async("text");
-    if(documentXml){const count=restoreDocxTableGeometry(documentXml);tableNote=" Таблиц обработано: "+count+".";}
+    if(documentXml){const count=restoreDocxTableGeometry(documentXml);tableNote=" Таблиц обработано: "+count+".";if(restoreDocxPageSettings(documentXml))tableNote+=" Размер страницы и поля документа восстановлены."; }
   }catch(error){
     console.warn("Не удалось восстановить геометрию таблиц DOCX:",error);
     tableNote=" Геометрия таблиц не восстановлена: "+error.message;
@@ -312,18 +484,60 @@ async function loadSheetJS(){
 async function importSpreadsheet(file){
   await loadSheetJS();
   const workbook=window.XLSX.read(await file.arrayBuffer(),{type:"array"});
-  const first=workbook.SheetNames[0];
-  if(!first) throw new Error("В файле не найден лист.");
-  const rows=window.XLSX.utils.sheet_to_json(workbook.Sheets[first],{header:1,raw:false,defval:""});
-  if(!rows.length) throw new Error("Первый лист таблицы пуст.");
-  const table=document.createElement("table");table.className="studio-data-table";
-  rows.forEach((row,index)=>{
-    const tr=document.createElement("tr");
-    row.forEach(value=>{const cell=document.createElement(index===0?"th":"td");cell.textContent=String(value??"");tr.append(cell);});
-    table.append(tr);
+  if(!workbook.SheetNames.length)throw new Error("В файле не найдено листов.");
+  const fragment=document.createDocumentFragment();
+  let imported=0,empty=0,merged=0;
+  workbook.SheetNames.forEach(name=>{
+    const sheet=workbook.Sheets[name],ref=sheet["!ref"];
+    if(!ref){empty++;return;}
+    const range=window.XLSX.utils.decode_range(ref);
+    const heading=document.createElement("h3");heading.textContent=name;fragment.append(heading);
+    const table=document.createElement("table");table.className="studio-data-table";
+    table.dataset.sheetName=name;table.setAttribute("aria-label",name);
+    const colgroup=document.createElement("colgroup");
+    for(let col=range.s.c;col<=range.e.c;col++){
+      const colNode=document.createElement("col"),meta=sheet["!cols"]?.[col];
+      const px=Number(meta?.wpx)||((Number(meta?.wch)||Number(meta?.width)||0)*7);
+      if(px>0)colNode.style.width=Math.max(12,Math.min(1200,Math.round(px)))+"px";
+      colgroup.append(colNode);
+    }
+    if(colgroup.children.length)table.append(colgroup);
+    const merges=sheet["!merges"]||[],covered=new Set(),starts=new Map();
+    merges.forEach(m=>{
+      if(m.s.r<range.s.r||m.s.c<range.s.c||m.e.r>range.e.r||m.e.c>range.e.c)return;
+      starts.set(m.s.r+":"+m.s.c,m);
+      for(let r=m.s.r;r<=m.e.r;r++)for(let col=m.s.c;col<=m.e.c;col++)if(r!==m.s.r||col!==m.s.c)covered.add(r+":"+col);
+      merged++;
+    });
+    for(let r=range.s.r;r<=range.e.r;r++){
+      const tr=document.createElement("tr"),rowMeta=sheet["!rows"]?.[r];
+      const rowPx=Number(rowMeta?.hpx)||((Number(rowMeta?.hpt)||0)*96/72);
+      if(rowPx>0)tr.style.height=Math.max(8,Math.min(1000,Math.round(rowPx)) )+"px";
+      for(let col=range.s.c;col<=range.e.c;col++){
+        if(covered.has(r+":"+col))continue;
+        const cellData=sheet[window.XLSX.utils.encode_cell({r,c:col})];
+        const cell=document.createElement(r===range.s.r?"th":"td");
+        let value="";
+        if(cellData){try{value=cellData.w??window.XLSX.utils.format_cell(cellData);}catch{value=cellData.v??"";}}
+        cell.textContent=String(value??"");
+        if(cellData){
+          if(["n","s","str","b","d","e"].includes(cellData.t))cell.dataset.xlsxType=cellData.t;
+          if(cellData.v!==undefined&&cellData.v!==null&&["number","string","boolean"].includes(typeof cellData.v))cell.dataset.xlsxValue=String(cellData.v).slice(0,2000);
+          if(typeof cellData.f==="string"&&cellData.f.length<=2000)cell.dataset.xlsxFormula=cellData.f;
+          if(typeof cellData.z==="string"&&cellData.z.length<=120)cell.dataset.xlsxFormat=cellData.z;
+          cell.dataset.xlsxDisplay=String(value??"").slice(0,2000);
+        }
+        const merge=starts.get(r+":"+col);
+        if(merge){if(merge.e.r>merge.s.r)cell.rowSpan=merge.e.r-merge.s.r+1;if(merge.e.c>merge.s.c)cell.colSpan=merge.e.c-merge.s.c+1;}
+        tr.append(cell);
+      }
+      table.append(tr);
+    }
+    fragment.append(table);imported++;
   });
-  editor.replaceChildren(table);state.format="sheet";
-  say("Загружен лист «"+first+"». Можно редактировать ячейки прямо в таблице. Другие листы исходной книги не изменяются и не включены в редактор.");
+  if(!imported)throw new Error("Все листы книги пусты.");
+  editor.replaceChildren(fragment);state.format="sheet";
+  say("Загружено листов: "+imported+". Сохранены объединения ячеек: "+merged+". Ширины столбцов и высоты строк восстановлены там, где они указаны. Формулы и сложное оформление могут отличаться; исходный файл остаётся доступен отдельно."+(empty?" Пустых листов пропущено: "+empty+".":""));
   setProgress(100);
 }
 async function recognize(){
@@ -482,7 +696,7 @@ function htmlRuns(node,TextRun,ImageRun){
   }
   function walk(n,style={}){
     if(n.nodeType===Node.TEXT_NODE){
-      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,underline:style.underline?{}:undefined,font:style.font||undefined,size:style.size||undefined,color:style.color||undefined,highlight:style.highlight||undefined}));
+      if(n.nodeValue)runs.push(new TextRun({text:n.nodeValue,bold:!!style.bold,italics:!!style.italics,underline:style.underline?{}:undefined,strike:!!style.strike,superScript:!!style.superScript,subScript:!!style.subScript,font:style.font||undefined,size:style.size||undefined,color:style.color||undefined,highlight:style.highlight||undefined}));
       return;
     }
     if(n.nodeType!==Node.ELEMENT_NODE)return;
@@ -502,8 +716,10 @@ function htmlRuns(node,TextRun,ImageRun){
     const next={bold:style.bold||["B","STRONG"].includes(n.tagName)||css.fontWeight==="bold"||Number(css.fontWeight)>=600,
       italics:style.italics||["I","EM"].includes(n.tagName)||css.fontStyle==="italic",
       underline:style.underline||n.tagName==="U"||(css.textDecoration||"").includes("underline"),
+      strike:style.strike||n.tagName==="S"||n.tagName==="DEL"||(css.textDecoration||"").includes("line-through"),
+      superScript:style.superScript||n.tagName==="SUP",subScript:style.subScript||n.tagName==="SUB",
       font:(css.fontFamily||n.getAttribute?.("face"))?.split(",")[0]?.replace(/["']/g,"")||style.font,
-      size:px?Math.max(16,Math.min(72,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),color:color||style.color,highlight:bg||style.highlight};
+      size:px?Math.max(1,Math.min(144,Math.round(px*1.5))):(fontSizeMap[htmlSize]||style.size),color:color||style.color,highlight:bg||style.highlight};
     n.childNodes.forEach(child=>walk(child,next));
     if(n.tagName==="BR")runs.push(new TextRun({text:"\n"}));
   }
@@ -547,6 +763,7 @@ async function exportDOCX(){
   }
   function addBlock(node){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
+    if(node.classList?.contains("studio-docx-page-settings"))return;
     if(node.dataset?.pageBreak==="true"){children.push(new Paragraph({children:[new PageBreak()]}));return;}
     if(node.tagName==="TABLE"){
       const colgroup=node.querySelector(":scope > colgroup");
@@ -555,8 +772,18 @@ async function exportDOCX(){
         const rowHeight=parseFloat(row.style.height||row.style.minHeight||""),storedRowHeight=Number(row.dataset.docxHeight)||0;
         const rowOptions={children:[...row.cells].map(cell=>{
           const bg=cssColor(cell.style.backgroundColor);
+          const cellBlocks=[...cell.children].filter(child=>["P","DIV","PRE"].includes(child.tagName));
+          const cellParagraphs=cellBlocks.length?cellBlocks.map(block=>{
+            const paragraphOptions={children:htmlRuns(block,TextRun,ImageRun),alignment:blockAlignment(block)};
+            const before=parseFloat(block.style?.marginTop||""),after=parseFloat(block.style?.marginBottom||"");
+            const spacing={};
+            if(Number.isFinite(before)&&before>0)spacing.before=Math.min(1200,Math.round(before*15));
+            if(Number.isFinite(after)&&after>0)spacing.after=Math.min(1200,Math.round(after*15));
+            if(Object.keys(spacing).length)paragraphOptions.spacing=spacing;
+            return new Paragraph(paragraphOptions);
+          }):[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})];
           const cellOptions={
-            children:[new Paragraph({children:htmlRuns(cell,TextRun,ImageRun),alignment:blockAlignment(cell)})],
+            children:cellParagraphs,
             borders:cellBorders(cell,node.dataset.docxTable==="true"),margins:cellMargins(cell),
             verticalAlign:cell.style.verticalAlign==="middle"?"center":(cell.style.verticalAlign||"top")
           };
@@ -589,25 +816,103 @@ async function exportDOCX(){
       if(node.tagName==="LI")opts.bullet={indent:360};
       if(node.tagName==="BLOCKQUOTE")opts.indent={left:360};
       const marginBottom=parseFloat(node.style?.marginBottom||"");
-      if(Number.isFinite(marginBottom)&&marginBottom>0)opts.spacing={after:Math.min(1200,Math.round(marginBottom*15))};
+      const marginTop=parseFloat(node.style?.marginTop||"");
+      const indentLeft=parseFloat(node.style?.marginLeft||"");
+      const indentRight=parseFloat(node.style?.marginRight||"");
+      const firstLine=parseFloat(node.style?.textIndent||"");
+      const lineHeight=parseFloat(node.style?.lineHeight||"");
+      const spacing={};
+      if(Number.isFinite(marginBottom)&&marginBottom>0)spacing.after=Math.min(1200,Math.round(marginBottom*15));
+      if(Number.isFinite(marginTop)&&marginTop>0)spacing.before=Math.min(1200,Math.round(marginTop*15));
+      if(Number.isFinite(lineHeight)&&lineHeight>0)spacing.line=Math.min(2400,Math.max(120,Math.round(lineHeight*240)));
+      if(Object.keys(spacing).length)opts.spacing=spacing;
+      if((Number.isFinite(indentLeft)&&indentLeft>0)||(Number.isFinite(indentRight)&&indentRight>0)||(Number.isFinite(firstLine)&&firstLine!==0))opts.indent={...(indentLeft>0?{left:Math.round(indentLeft*15)}:{}),...(indentRight>0?{right:Math.round(indentRight*15)}:{}),...(Number.isFinite(firstLine)&&firstLine!==0?{firstLine:Math.round(firstLine*15)}:{})};
       children.push(new Paragraph(opts));
     }else [...node.children].forEach(addBlock);
   }
   [...editor.children].forEach(addBlock);
   if(!children.length)children.push(new Paragraph({text:editor.innerText}));
-  const doc=new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,right:850,bottom:1134,left:850}}},children}]});
+  const page=readDocxPageSettings();
+  const doc=new Document({sections:[{properties:{page:{size:{width:page.width,height:page.height},margin:{top:page.top,right:page.right,bottom:page.bottom,left:page.left,header:page.header,footer:page.footer}}},children}]});
   const blob=await Packer.toBlob(doc);
   download(blob,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.docx");
   say("DOCX создан. Перенесены объединённые ячейки, размеры столбцов и строк, заливка, границы, отступы и вертикальное выравнивание таблиц, а также текст и встроенные изображения. Проверьте итоговый файл: сложные вложенные таблицы и нестандартные стили могут отличаться.");
 }
 async function exportXLSX(){
-  const table=editor.querySelector("table");if(!table){say("В редакторе нет таблицы для экспорта XLSX.");return;}
+  const tables=[...editor.querySelectorAll("table")];
+  if(!tables.length){say("В редакторе нет таблиц для экспорта XLSX.");return;}
   await loadSheetJS();
-  const workbook=window.XLSX.utils.book_new(),sheet=window.XLSX.utils.table_to_sheet(table);
-  window.XLSX.utils.book_append_sheet(workbook,sheet,"Лист1");
+  const workbook=window.XLSX.utils.book_new();
+  tables.forEach((table,index)=>{
+    const sheet=window.XLSX.utils.table_to_sheet(table,{raw:true});
+    // Restore original cell types, number formats and formulas only when displayed content is unchanged.
+    const occupied=new Set();
+    [...table.rows].forEach((row,r)=>{
+      let col=0;
+      [...row.cells].forEach(cell=>{
+        while(occupied.has(r+":"+col))col++;
+        const rowSpan=Math.max(1,cell.rowSpan||1),colSpan=Math.max(1,cell.colSpan||1);
+        const unchanged=cell.dataset.xlsxDisplay!==undefined&&cell.textContent===cell.dataset.xlsxDisplay;
+        if(unchanged){
+          const address=window.XLSX.utils.encode_cell({r,c:col}),target=sheet[address];
+          if(target){
+            const type=cell.dataset.xlsxType,value=cell.dataset.xlsxValue,formula=cell.dataset.xlsxFormula,format=cell.dataset.xlsxFormat;
+            if(value!==undefined&&type){
+              if(type==="n"&&value.trim()!==""&&Number.isFinite(Number(value))){target.v=Number(value);target.t="n";}
+              else if(type==="b"){target.v=value==="true"||value==="1";target.t="b";}
+              else if(type==="d"){const date=new Date(value);if(!Number.isNaN(date.getTime())){target.v=date;target.t="d";}}
+              else if(["s","str"].includes(type)){target.v=value;target.t=type;}
+              else if(type==="e"){target.v=value;target.t="e";}
+            }
+            if(formula!==undefined)target.f=formula;
+            if(format!==undefined)target.z=format;
+          }
+        }
+        for(let rr=r;rr<r+rowSpan;rr++)for(let cc=col;cc<col+colSpan;cc++)if(rr!==r||cc!==col)occupied.add(rr+":"+cc);
+        col+=colSpan;
+      });
+    });
+    const cols=[...table.querySelectorAll(":scope > colgroup > col")];
+    if(cols.length)sheet["!cols"]=cols.map(col=>{
+      const px=parseFloat(col.style.width||"");
+      return Number.isFinite(px)&&px>0?{wpx:Math.max(12,Math.min(1200,Math.round(px)))}:{};
+    });
+    const rows=[...table.rows];
+    if(rows.some(row=>parseFloat(row.style.height||"")>0))sheet["!rows"]=rows.map(row=>{
+      const px=parseFloat(row.style.height||"");
+      return Number.isFinite(px)&&px>0?{hpx:Math.max(8,Math.min(1000,Math.round(px)))}:{};
+    });
+    let name=table.dataset.sheetName||table.getAttribute("aria-label")||"Таблица "+(index+1);
+    name=String(name).replace(/[\\\\/?*:[\\]]/g," ").trim().slice(0,31)||"Лист "+(index+1);
+    let unique=name,suffix=2;
+    while(workbook.SheetNames.includes(unique)){
+      const tail=" ("+suffix+++ ")";
+      unique=name.slice(0,31-tail.length)+tail;
+    }
+    window.XLSX.utils.book_append_sheet(workbook,sheet,unique);
+  });
   window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
-  say("XLSX создан из редактируемой таблицы.");
+  say("XLSX создан: "+tables.length+" листов. Сохранены данные, объединения ячеек и доступные размеры столбцов/строк. Формулы, стили и сложные настройки проверьте в Excel.");
 }
+async function exportSelectedFormat(){
+  const format=$("studioExportFormat").value;
+  try{
+    if(format==="pdf"){printPDF();return;}
+    if(format==="docx"){await exportDOCX();return;}
+    if(format==="xlsx"){await exportXLSX();return;}
+    if(format==="txt"){exportText();return;}
+    if(format==="html"){
+      download(new Blob([documentHTML()],{type:"text/html;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.html");
+      say("HTML-копия редакции подготовлена.");
+      return;
+    }
+    say("Выберите формат сохранения.");
+  }catch(error){
+    console.error("Export:",error);
+    say("Не удалось подготовить файл: "+error.message);
+  }
+}
+$("studioExportSelected").addEventListener("click",exportSelectedFormat);
 $("studioRecognize").addEventListener("click",recognize);
 $("studioSave").addEventListener("click",()=>saveToLibrary().catch(e=>say("Не удалось сохранить: "+e.message)));
 $("studioLoadRevision").addEventListener("click",()=>loadSavedRevision());
