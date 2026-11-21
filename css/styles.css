@@ -652,3 +652,11 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .pdf-search-result{max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}
 .pdf-bookmark-row{display:flex;gap:6px;align-items:center}
 @media(max-width:560px){.pdf-navigation-panel{align-items:stretch}.pdf-navigation-panel label{width:100%;justify-content:space-between}.pdf-navigation-panel input{flex:1}.pdf-navigation-panel button{min-height:40px}}
+
+
+/* Простое меню экспорта редакции */
+.studio-export-panel{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.studio-export-panel>label{font-size:13px;font-weight:650}
+.studio-export-panel select{min-width:min(290px,100%);max-width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}
+.studio-export-hint{flex-basis:100%;margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+@media(max-width:600px){.studio-export-panel{align-items:stretch;flex-direction:column}.studio-export-panel>button,.studio-export-panel select{width:100%;min-height:44px}}
