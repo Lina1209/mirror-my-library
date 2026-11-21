@@ -737,7 +737,7 @@ async function exportSelectedFormat(){
     if(format==="xlsx"){await exportXLSX();return;}
     if(format==="txt"){exportText();return;}
     if(format==="html"){
-      download(new Blob([documentHTML()],{type:"text/html;charset=utf-8"}),safeName(state.sourceName.replace(/\\.[^.]+$/,"")||"document")+"-редакция.html");
+      download(new Blob([documentHTML()],{type:"text/html;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.html");
       say("HTML-копия редакции подготовлена.");
       return;
     }
