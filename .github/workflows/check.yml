@@ -1,9 +1,9 @@
 name: Check JavaScript
 on:
   pull_request:
-    branches: ["main", "feature/reader-fullscreen-tts-studio"]
+    branches: ["main"]
   push:
-    branches: ["main", "feature/google-cloud-ui-translation", "fix/library-reader-formats-pdf-export"]
+    branches: ["**"]
 jobs:
   syntax:
     runs-on: ubuntu-latest
