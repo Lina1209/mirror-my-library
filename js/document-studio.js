@@ -296,7 +296,7 @@ function sanitizeImportedHTML(markup){
     if(["TD","TH"].includes(node.tagName)){
       ["rowspan","colspan"].forEach(key=>{const n=Number(attrs.find(a=>a.name.toLowerCase()===key)?.value);if(Number.isInteger(n)&&n>=1&&n<=100)node.setAttribute(key,String(n));});
     }
-    const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-sheet-name","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
+    const safeDataAttributes=new Set(["data-page-width","data-page-height","data-page-top","data-page-right","data-page-bottom","data-page-left","data-page-header","data-page-footer","data-sheet-name","data-xlsx-type","data-xlsx-value","data-xlsx-formula","data-xlsx-format","data-xlsx-display","data-docx-table","data-docx-width-type","data-docx-width","data-docx-height","data-docx-height-rule","data-docx-header","data-docx-cant-split","data-page-break"]);
     attrs.forEach(attr=>{
       const key=attr.name.toLowerCase(),value=String(attr.value||"").trim();
       if(!safeDataAttributes.has(key))return;
@@ -495,6 +495,13 @@ async function importSpreadsheet(file){
         let value="";
         if(cellData){try{value=cellData.w??window.XLSX.utils.format_cell(cellData);}catch{value=cellData.v??"";}}
         cell.textContent=String(value??"");
+        if(cellData){
+          if(["n","s","str","b","d","e"].includes(cellData.t))cell.dataset.xlsxType=cellData.t;
+          if(cellData.v!==undefined&&cellData.v!==null&&["number","string","boolean"].includes(typeof cellData.v))cell.dataset.xlsxValue=String(cellData.v).slice(0,2000);
+          if(typeof cellData.f==="string"&&cellData.f.length<=2000)cell.dataset.xlsxFormula=cellData.f;
+          if(typeof cellData.z==="string"&&cellData.z.length<=120)cell.dataset.xlsxFormat=cellData.z;
+          cell.dataset.xlsxDisplay=String(value??"").slice(0,2000);
+        }
         const merge=starts.get(r+":"+col);
         if(merge){if(merge.e.r>merge.s.r)cell.rowSpan=merge.e.r-merge.s.r+1;if(merge.e.c>merge.s.c)cell.colSpan=merge.e.c-merge.s.c+1;}
         tr.append(cell);
@@ -803,6 +810,33 @@ async function exportXLSX(){
   const workbook=window.XLSX.utils.book_new();
   tables.forEach((table,index)=>{
     const sheet=window.XLSX.utils.table_to_sheet(table,{raw:true});
+    // Restore original cell types, number formats and formulas only when displayed content is unchanged.
+    const occupied=new Set();
+    [...table.rows].forEach((row,r)=>{
+      let col=0;
+      [...row.cells].forEach(cell=>{
+        while(occupied.has(r+":"+col))col++;
+        const rowSpan=Math.max(1,cell.rowSpan||1),colSpan=Math.max(1,cell.colSpan||1);
+        const unchanged=cell.dataset.xlsxDisplay!==undefined&&cell.textContent===cell.dataset.xlsxDisplay;
+        if(unchanged){
+          const address=window.XLSX.utils.encode_cell({r,c:col}),target=sheet[address];
+          if(target){
+            const type=cell.dataset.xlsxType,value=cell.dataset.xlsxValue,formula=cell.dataset.xlsxFormula,format=cell.dataset.xlsxFormat;
+            if(value!==undefined&&type){
+              if(type==="n"&&value.trim()!==""&&Number.isFinite(Number(value))){target.v=Number(value);target.t="n";}
+              else if(type==="b"){target.v=value==="true"||value==="1";target.t="b";}
+              else if(type==="d"){const date=new Date(value);if(!Number.isNaN(date.getTime())){target.v=date;target.t="d";}}
+              else if(["s","str"].includes(type)){target.v=value;target.t=type;}
+              else if(type==="e"){target.v=value;target.t="e";}
+            }
+            if(formula!==undefined)target.f=formula;
+            if(format!==undefined)target.z=format;
+          }
+        }
+        for(let rr=r;rr<r+rowSpan;rr++)for(let cc=col;cc<col+colSpan;cc++)if(rr!==r||cc!==col)occupied.add(rr+":"+cc);
+        col+=colSpan;
+      });
+    });
     const cols=[...table.querySelectorAll(":scope > colgroup > col")];
     if(cols.length)sheet["!cols"]=cols.map(col=>{
       const px=parseFloat(col.style.width||"");
