@@ -1539,11 +1539,26 @@ async function shareSelectedText() {
   }
 }
 async function shareCurrentBook() {
-  const book=state.activeBook; if(!book) return;
-  const source=getBookDownloadInfo(book);
-  const file=new File([source.data],source.name,{type:source.type});
-  try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else downloadBook(book); }
-  catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
+  const book=state.activeBook;
+  if(!book){toast("Сначала откройте книгу.");return;}
+  try {
+    const source=getBookDownloadInfo(book);
+    if(!source.data){toast("Не удалось найти исходный файл книги.");return;}
+    if(typeof File!=="undefined" && typeof navigator.share==="function"){
+      const file=new File([source.data],source.name,{type:source.type||"application/octet-stream"});
+      if(typeof navigator.canShare==="function" && navigator.canShare({files:[file]})){
+        await navigator.share({title:book.title||source.name,text:"Файл из моей библиотеки ©Mirror",files:[file]});
+        return;
+      }
+    }
+    downloadBook(book);
+    toast("Меню отправки файлов здесь недоступно. Книга скачана — прикрепите её в Telegram, WhatsApp или другом приложении.");
+  } catch(error) {
+    if(error?.name==="AbortError")return;
+    console.warn("Share book:",error);
+    downloadBook(book);
+    toast("Не удалось открыть отправку файла. Книга скачана — прикрепите её в нужном приложении.");
+  }
 }
 async function getCurrentPDFPageText() {
   if (!state.pdf) return "";

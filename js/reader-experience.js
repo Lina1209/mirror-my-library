@@ -198,6 +198,7 @@ $("readerDrawer").addEventListener("click",event=>{
   else if(action==="speak")openAudioDock(true);
   else if(action==="library"){closeOverlays();runLegacyAction("library");}
   else if(action==="file"){closeOverlays();runLegacyAction("open-device");}
+  else if(action==="share"){closeOverlays();runLegacyAction("share");}
   else if(action==="network"){
     const body=make("div","reader-panel-empty","Сетевая библиотека пока не подключена к серверному каталогу. Личные книги уже доступны из локальной библиотеки устройства. Подключение синхронизации добавим отдельным этапом, чтобы не подвергать риску ваши файлы.");
     showSubpanel("Сетевая библиотека","ПОДКЛЮЧЕНИЕ",body);
