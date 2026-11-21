@@ -638,3 +638,8 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .pdf-form-field input[type=text],.pdf-form-field textarea,.pdf-form-field select{width:100%;max-width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
 .pdf-form-field input[type=checkbox]{width:22px;height:22px}
 .pdf-form-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+.pdf-signature-panel{margin:10px auto;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);max-width:900px}
+.pdf-signature-panel h3{margin:0 0 6px}
+.pdf-signature-panel p{font-size:13px;color:var(--muted)}
+.pdf-signature-canvas{display:block;width:100%;height:auto;aspect-ratio:900/280;background:transparent;border:1px dashed var(--line);border-radius:8px;touch-action:none;cursor:crosshair}
