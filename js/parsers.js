@@ -98,6 +98,16 @@ export function fb2ToHTML(raw) {
   const body = byLocalName(xml, "body");
   if (!body) throw new Error("В FB2 отсутствует основной раздел body.");
 
+  const binaries = new Map();
+  [...xml.getElementsByTagNameNS("*", "binary")].forEach(binary => {
+    const id = binary.getAttribute("id");
+    const mime = String(binary.getAttribute("content-type") || "").toLowerCase();
+    const base64 = String(binary.textContent || "").replace(/\\s+/g, "");
+    if (id && /^image\\/(png|jpeg|gif|webp)$/.test(mime) && /^[a-z0-9+/=]+$/i.test(base64)) {
+      binaries.set(id, { mime, base64 });
+    }
+  });
+
   const allowed = new Set([
     "p", "title", "subtitle", "section", "strong", "emphasis",
     "strikethrough", "sub", "sup", "code", "poem", "stanza",
@@ -113,9 +123,20 @@ export function fb2ToHTML(raw) {
     if (tag === "binary") return document.createDocumentFragment();
 
     if (tag === "image") {
+      const reference = node.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+        || node.getAttribute("href") || "";
+      const binary = binaries.get(reference.replace(/^#/, ""));
+      if (binary) {
+        const image = document.createElement("img");
+        image.className = "fb2-image";
+        image.loading = "lazy";
+        image.alt = node.getAttribute("alt") || "Иллюстрация из FB2";
+        image.src = "data:" + binary.mime + ";base64," + binary.base64;
+        return image;
+      }
       const placeholder = document.createElement("span");
       placeholder.className = "fb2-image-placeholder";
-      placeholder.textContent = "[Иллюстрация из FB2]";
+      placeholder.textContent = "[Иллюстрация не найдена в файле FB2]";
       return placeholder;
     }
 
