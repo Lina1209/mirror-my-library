@@ -142,7 +142,7 @@ window.openMirrorBookInStudio = async function(file, bookId = null) {
 
 $("studioPreviewOpen")?.addEventListener("click",()=>openStudioPreview($("studioPreviewFile").files?.[0]));
 $("studioPreviewFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file){state.sourceBookId=null;state.sourceName=file.name;state.sourceType=file.type||"";$("studioSaveSourceToLibrary").disabled=false;$("studioSaveSourceToLibrary").textContent="＋ В библиотеку";openStudioPreview(file);}});
-$("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file)openStudioPreview(file);});
+$("studioFile")?.addEventListener("change",event=>{const file=event.target.files?.[0];if(file){state.sourceBookId=null;state.sourceName=file.name;state.sourceType=file.type||"";$("studioSaveSourceToLibrary").disabled=false;$("studioSaveSourceToLibrary").textContent="＋ В библиотеку";openStudioPreview(file);}});
 previewDownload?.addEventListener("click",previewDownloadOriginal);
 async function saveStudioSourceToLibrary() {
   const file = studioPreview.file;
