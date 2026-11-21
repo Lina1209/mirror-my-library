@@ -368,7 +368,10 @@ function renderTextPage() {
 }
 
 function renderFB2Page() {
-  $("readerContent").innerHTML = state.currentTextPages[state.textPage] || "";
+  const content = $("readerContent");
+  content.classList.add("fb2-content");
+  content.style.setProperty("--fb2-font-size", `${state.fontSize}px`);
+  content.innerHTML = state.currentTextPages[state.textPage] || "";
   updateTextNav("Раздел");
   if (state.activeBook) {
     saveProgress(state.activeBook.id,
@@ -1191,6 +1194,7 @@ async function openBook(bookId) {
   $("readerBookTitle").textContent = book.title;
   $("readerMeta").replaceChildren(document.createTextNode(`${book.author || "Автор не указан"} · ${book.ext.toUpperCase()}`));
   $("readerContent").textContent = "Загружаем книгу…";
+  $("readerContent").classList.remove("fb2-content");
   $("readerContent").style.fontSize = `${state.fontSize}px`;
 
   const progress = await getOne("progress", bookId);
@@ -1254,12 +1258,14 @@ $("fontUp").onclick = () => {
   state.fontSize = Math.min(30, state.fontSize + 1);
   localStorage.setItem("mirror-font-size", String(state.fontSize));
   $("readerContent").style.fontSize = `${state.fontSize}px`;
+  $("readerContent").style.setProperty("--fb2-font-size", `${state.fontSize}px`);
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
 $("fontDown").onclick = () => {
   state.fontSize = Math.max(13, state.fontSize - 1);
   localStorage.setItem("mirror-font-size", String(state.fontSize));
   $("readerContent").style.fontSize = `${state.fontSize}px`;
+  $("readerContent").style.setProperty("--fb2-font-size", `${state.fontSize}px`);
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
 function getSelectedReaderText() {
