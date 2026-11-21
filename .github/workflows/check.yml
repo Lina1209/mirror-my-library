@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: ["main", "feature/reader-fullscreen-tts-studio"]
   push:
-    branches: ["main", "feature/google-cloud-ui-translation"]
+    branches: ["main", "feature/google-cloud-ui-translation", "fix/library-reader-formats-pdf-export"]
 jobs:
   syntax:
     runs-on: ubuntu-latest
