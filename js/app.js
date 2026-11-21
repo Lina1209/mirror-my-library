@@ -85,6 +85,7 @@ async function refresh() {
   }));
   renderBooks();
 }
+window.refreshMirrorLibrary = refresh;
 
 function createBookCover(book) {
   const cover = document.createElement("div");
@@ -269,7 +270,7 @@ async function sendBookToStudio(bookId) {
   const file = new File([book.data], book.name || book.title || `document.${book.ext}`, { type: mime });
   try {
     $("detailsDialog")?.close();
-    await window.openMirrorBookInStudio(file);
+    await window.openMirrorBookInStudio(file, book.id);
     toast("Документ открыт в студии. Оригинал сохранён в библиотеке.");
   } catch (error) {
     console.error("Open in Document Studio:", error);
