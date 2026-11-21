@@ -107,6 +107,8 @@ function createBookCover(book) {
 }
 
 let readerLibraryTarget = "reader";
+let readerPickerOpenAfterUpload = false;
+let pendingReaderOpenAfterUpload = false;
 
 function renderReaderLibraryPicker() {
   const term = $("readerLibrarySearch").value.trim().toLocaleLowerCase();
@@ -145,8 +147,9 @@ function renderReaderLibraryPicker() {
   grid.classList.toggle("hidden", books.length === 0);
 }
 
-function openReaderLibraryPicker(target = "reader") {
+function openReaderLibraryPicker(target = "reader", openAfterUpload = false) {
   readerLibraryTarget = target;
+  readerPickerOpenAfterUpload = target === "reader" && openAfterUpload;
   $("readerLibraryTitle").textContent = target === "studio" ? "Выбрать документ из библиотеки" : "Книжная полка";
   $("readerLibrarySubtitle").textContent = target === "studio"
     ? "Выберите сохранённый файл для просмотра и обработки в Студии"
@@ -1585,25 +1588,33 @@ $("bookmarkBtn").onclick = async () => {
   toast("Закладка сохранена");
 };
 
-$("chooseFiles").onclick = () => $("fileInput").click();
-$("addTopBtn").onclick = () => $("fileInput").click();
-$("emptyAddBtn").onclick = () => $("fileInput").click();
-$("fileInput").onchange = event => {
-  importFiles([...event.target.files]);
+$("chooseFiles").onclick = () => { pendingReaderOpenAfterUpload = false; $("fileInput").click(); };
+$("addTopBtn").onclick = () => { pendingReaderOpenAfterUpload = false; $("fileInput").click(); };
+$("emptyAddBtn").onclick = () => { pendingReaderOpenAfterUpload = false; $("fileInput").click(); };
+$("fileInput").onchange = async event => {
+  const files = [...event.target.files];
+  const shouldOpenInReader = pendingReaderOpenAfterUpload;
+  pendingReaderOpenAfterUpload = false;
   event.target.value = "";
+  const addedIds = await importFiles(files);
+  if (shouldOpenInReader && addedIds.length) await openBook(addedIds[0]);
 };
+$("fileInput").addEventListener("cancel", () => { pendingReaderOpenAfterUpload = false; });
 $("searchInput").oninput = renderBooks;
-$("readerLibraryClose").onclick = () => $("readerLibraryDialog").close();
+$("readerLibraryClose").onclick = () => { readerPickerOpenAfterUpload = false; $("readerLibraryDialog").close(); };
+$("readerLibraryDialog").addEventListener("close", () => { readerPickerOpenAfterUpload = false; });
 $("readerLibrarySearch").oninput = renderReaderLibraryPicker;
 $("libraryShelfBtn").onclick = () => openReaderLibraryPicker("reader");
 $("studioShelfBtn").onclick = () => openReaderLibraryPicker("studio");
 $("studioChooseFromLibrary").onclick = () => openReaderLibraryPicker("studio");
 $("readerLibraryUploadTop").onclick = () => {
+  pendingReaderOpenAfterUpload = readerLibraryTarget === "reader" && readerPickerOpenAfterUpload;
   $("readerLibraryDialog").close();
   if (readerLibraryTarget === "studio") $("studioPreviewFile").click();
   else $("fileInput").click();
 };
 $("readerLibraryUpload").onclick = () => {
+  pendingReaderOpenAfterUpload = readerLibraryTarget === "reader" && readerPickerOpenAfterUpload;
   $("readerLibraryDialog").close();
   if (readerLibraryTarget === "studio") $("studioPreviewFile").click();
   else $("fileInput").click();
@@ -1756,8 +1767,8 @@ readerActionsMenu.addEventListener("click", event => {
   if (!item) return;
   const action = item.dataset.readerAction;
   closeReaderActionsMenu();
-  if (action === "open-device") $("fileInput").click();
-  else if (action === "open-library") openReaderLibraryPicker();
+  if (action === "open-device") { pendingReaderOpenAfterUpload = true; $("fileInput").click(); }
+  else if (action === "open-library") openReaderLibraryPicker("reader", true);
   else if (action === "library") $("backBtn").click();
   else if (!state.activeBook) toast("Сначала откройте книгу.");
   else if (action === "details") { showDetails(state.activeBook); $("detailsDialog").showModal(); }
