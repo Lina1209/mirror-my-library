@@ -630,3 +630,11 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .pdf-annotation-layer{cursor:crosshair}
 .pdf-annotation-layer[style*="pointer-events: none"]{cursor:default}
 @media(max-width:600px){.pdf-editor-setting input[type=range]{width:72px}.pdf-editor-setting select{max-width:100px}}
+
+.pdf-form-panel{margin:12px auto;padding:12px;max-width:900px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.pdf-form-panel h3{margin:0 0 10px}
+.pdf-form-field{display:flex;flex-direction:column;gap:5px;margin:9px 0;font-size:13px}
+.pdf-form-field span{font-weight:600;overflow-wrap:anywhere}
+.pdf-form-field input[type=text],.pdf-form-field textarea,.pdf-form-field select{width:100%;max-width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.pdf-form-field input[type=checkbox]{width:22px;height:22px}
+.pdf-form-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
