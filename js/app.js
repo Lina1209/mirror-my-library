@@ -235,7 +235,7 @@ async function importFiles(fileList) {
   let added = 0;
   for (const file of fileList) {
     let ext = extension(file.name);
-    if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv"].includes(ext)) {
+    if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) {
       toast(`Формат не поддерживается: ${file.name}`);
       continue;
     }
@@ -969,6 +969,20 @@ async function extractPDFText() {
   }
 }
 
+async function openImageBook(book){
+  const blob=new Blob([book.data],{type:book.type||"image/"+book.ext});
+  const url=URL.createObjectURL(blob);
+  const image=document.createElement("img");
+  image.className="reader-image";
+  image.alt=book.name||book.title;
+  image.src=url;
+  image.onload=()=>setReaderStatus(image.naturalWidth+" × "+image.naturalHeight);
+  image.onerror=()=>{URL.revokeObjectURL(url);setReaderStatus("Не удалось открыть изображение");};
+  $("readerContent").replaceChildren(image);
+  $("prevBtn").disabled=true;$("nextBtn").disabled=true;
+  setReaderStatus("Изображение");
+  await saveProgress(book.id,100,{page:1});
+}
 async function openBook(bookId) {
   if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
   const book = await getOne("books", bookId);
