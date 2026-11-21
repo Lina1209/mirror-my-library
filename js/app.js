@@ -801,7 +801,7 @@ async function exportEditedPDF(){
         ctx.save();
         if(object.background!==false){ctx.fillStyle=object.backgroundColor||"#ffffff";ctx.fillRect(object.x*overlay.width,object.y*overlay.height,object.w*overlay.width,object.h*overlay.height);}
         ctx.fillStyle=object.color||"#202020";
-        ctx.font=\`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*overlay.height)}px ${object.fontFamily||"Arial"}\`;
+        ctx.font=`${object.italic?"italic ":""}${object.bold?"bold ":""}${Math.max(8,object.fontScale*overlay.height)}px ${object.fontFamily||"Arial"}`;
         ctx.textBaseline="top";ctx.fillText(object.text,object.x*overlay.width,object.y*overlay.height,object.w*overlay.width);ctx.restore();
       }
       if(overlay.width&&overlay.height){
