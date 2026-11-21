@@ -102,8 +102,8 @@ export function fb2ToHTML(raw) {
   [...xml.getElementsByTagNameNS("*", "binary")].forEach(binary => {
     const id = binary.getAttribute("id");
     const mime = String(binary.getAttribute("content-type") || "").toLowerCase();
-    const base64 = String(binary.textContent || "").replace(/\\s+/g, "");
-    if (id && /^image\\/(png|jpeg|gif|webp)$/.test(mime) && /^[a-z0-9+/=]+$/i.test(base64)) {
+    const base64 = String(binary.textContent || "").replace(/\s+/g, "");
+    if (id && /^image\/(png|jpeg|gif|webp)$/.test(mime) && /^[a-z0-9+/=]+$/i.test(base64)) {
       binaries.set(id, { mime, base64 });
     }
   });
