@@ -729,6 +729,25 @@ async function exportXLSX(){
   window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
   say("XLSX создан из редактируемой таблицы.");
 }
+async function exportSelectedFormat(){
+  const format=$("studioExportFormat").value;
+  try{
+    if(format==="pdf"){printPDF();return;}
+    if(format==="docx"){await exportDOCX();return;}
+    if(format==="xlsx"){await exportXLSX();return;}
+    if(format==="txt"){exportText();return;}
+    if(format==="html"){
+      download(new Blob([documentHTML()],{type:"text/html;charset=utf-8"}),safeName(state.sourceName.replace(/\\.[^.]+$/,"")||"document")+"-редакция.html");
+      say("HTML-копия редакции подготовлена.");
+      return;
+    }
+    say("Выберите формат сохранения.");
+  }catch(error){
+    console.error("Export:",error);
+    say("Не удалось подготовить файл: "+error.message);
+  }
+}
+$("studioExportSelected").addEventListener("click",exportSelectedFormat);
 $("studioRecognize").addEventListener("click",recognize);
 $("studioSave").addEventListener("click",()=>saveToLibrary().catch(e=>say("Не удалось сохранить: "+e.message)));
 $("studioLoadRevision").addEventListener("click",()=>loadSavedRevision());
