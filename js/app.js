@@ -1440,7 +1440,35 @@ document.addEventListener("click", event => {
   if(!event.target.closest(".reader-menu-wrap")) closeReaderMenu();
 });
 document.addEventListener("keydown", event => {
-  if(event.key === "Escape") closeReaderMenu();
+  if(event.key === "Escape") { closeReaderMenu(); closeReaderActionsMenu(); }
+});
+const readerActionsButton = $("readerActionsBtn");
+const readerActionsMenu = $("readerActionsMenu");
+function closeReaderActionsMenu() {
+  readerActionsMenu.hidden = true;
+  readerActionsButton.setAttribute("aria-expanded","false");
+}
+readerActionsButton.addEventListener("click", event => {
+  event.stopPropagation();
+  const opening = readerActionsMenu.hidden;
+  readerActionsMenu.hidden = !opening;
+  readerActionsButton.setAttribute("aria-expanded", String(opening));
+});
+readerActionsMenu.addEventListener("click", event => {
+  const item = event.target.closest("[data-reader-action]");
+  if (!item) return;
+  const action = item.dataset.readerAction;
+  closeReaderActionsMenu();
+  if (action === "open") $("fileInput").click();
+  else if (action === "library") $("backBtn").click();
+  else if (!state.activeBook) toast("Сначала откройте книгу.");
+  else if (action === "details") { showDetails(state.activeBook); $("detailsDialog").showModal(); }
+  else if (action === "download") downloadBook(state.activeBook);
+  else if (action === "share") shareCurrentBook();
+  else if (action === "bookmark") $("bookmarkBtn").click();
+});
+document.addEventListener("click", event => {
+  if(!event.target.closest(".reader-actions-wrap")) closeReaderActionsMenu();
 });
 let touchX=0,touchY=0;$("readerContent").addEventListener("touchstart",e=>{touchX=e.changedTouches[0].clientX;touchY=e.changedTouches[0].clientY;},{passive:true});$("readerContent").addEventListener("touchend",e=>{const dx=e.changedTouches[0].clientX-touchX,dy=e.changedTouches[0].clientY-touchY;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25){if(dx<0)$("nextBtn").click();else $("prevBtn").click();}},{passive:true});
 
