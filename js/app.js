@@ -105,6 +105,8 @@ function createBookCover(book) {
   return cover;
 }
 
+let readerLibraryTarget = "reader";
+
 function renderReaderLibraryPicker() {
   const term = $("readerLibrarySearch").value.trim().toLocaleLowerCase();
   const books = state.books.filter(book =>
@@ -133,7 +135,8 @@ function renderReaderLibraryPicker() {
     card.append(cover, details);
     card.addEventListener("click", () => {
       $("readerLibraryDialog").close();
-      openBook(book.id);
+      if (readerLibraryTarget === "studio") sendBookToStudio(book.id);
+      else openBook(book.id);
     });
     grid.append(card);
   }
@@ -141,7 +144,12 @@ function renderReaderLibraryPicker() {
   grid.classList.toggle("hidden", books.length === 0);
 }
 
-function openReaderLibraryPicker() {
+function openReaderLibraryPicker(target = "reader") {
+  readerLibraryTarget = target;
+  $("readerLibraryTitle").textContent = target === "studio" ? "Выбрать документ из библиотеки" : "Книжная полка";
+  $("readerLibrarySubtitle").textContent = target === "studio"
+    ? "Выберите сохранённый файл для просмотра и обработки в Студии"
+    : "Ваша библиотека · обложка, название и автор";
   $("readerLibrarySearch").value = "";
   $("readerPickerCards").classList.add("active");
   $("readerPickerList").classList.remove("active");
@@ -1558,7 +1566,19 @@ $("fileInput").onchange = event => {
 $("searchInput").oninput = renderBooks;
 $("readerLibraryClose").onclick = () => $("readerLibraryDialog").close();
 $("readerLibrarySearch").oninput = renderReaderLibraryPicker;
-$("readerLibraryUpload").onclick = () => { $("readerLibraryDialog").close(); $("fileInput").click(); };
+$("libraryShelfBtn").onclick = () => openReaderLibraryPicker("reader");
+$("studioShelfBtn").onclick = () => openReaderLibraryPicker("studio");
+$("studioChooseFromLibrary").onclick = () => openReaderLibraryPicker("studio");
+$("readerLibraryUploadTop").onclick = () => {
+  $("readerLibraryDialog").close();
+  if (readerLibraryTarget === "studio") $("studioPreviewFile").click();
+  else $("fileInput").click();
+};
+$("readerLibraryUpload").onclick = () => {
+  $("readerLibraryDialog").close();
+  if (readerLibraryTarget === "studio") $("studioPreviewFile").click();
+  else $("fileInput").click();
+};
 $("readerPickerCards").onclick = () => {
   $("readerPickerCards").classList.add("active"); $("readerPickerList").classList.remove("active");
   $("readerPickerCards").setAttribute("aria-pressed", "true"); $("readerPickerList").setAttribute("aria-pressed", "false");
