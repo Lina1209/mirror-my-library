@@ -790,3 +790,14 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .reader-empty-state p{max-width:320px;line-height:1.6;margin:0 0 18px}
 .reader-empty-icon{font-size:42px;opacity:.75}
 #readerNavBtn{white-space:nowrap}
+
+/* Левое меню действий просмотрщика: открыть файл, библиотека и операции с книгой */
+.reader-actions-wrap{position:relative;display:flex;align-items:center;flex:0 0 auto}
+.reader-actions-menu{position:absolute;z-index:45;top:calc(100% + 10px);left:0;width:min(310px,calc(100vw - 24px));max-height:min(76vh,620px);overflow:auto;padding:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 38px rgba(42,35,24,.18)}
+.reader-actions-menu[hidden]{display:none}
+.reader-actions-menu button{display:block;width:100%;padding:11px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink);text-align:left;font:inherit;font-size:13px;cursor:pointer}
+.reader-actions-menu button:hover{background:var(--accent2)}
+.reader-menu-divider{height:1px;background:var(--line);margin:8px 2px}
+.reader-menu-subheading{padding:4px 10px 6px;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.reader-actions-menu .reader-menu-heading{margin-bottom:6px}
+@media(max-width:600px){.reader-actions-menu{left:0;width:min(300px,calc(100vw - 18px))}.reader-toolbar{gap:6px}.reader-actions-wrap .reader-menu-btn{width:40px;height:40px}}
