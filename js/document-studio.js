@@ -119,24 +119,25 @@ async function openStudioPreview(file){
 // Accept a book already stored in the local library and open it in the separate editor workspace.
 window.openMirrorBookInStudio = async function(file, bookId = null) {
   if (!(file instanceof File)) throw new TypeError("Не удалось получить файл из библиотеки.");
-  const assignFile = input => {
-    if (!input) return;
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    input.files = transfer.files;
-  };
-  $("openStudioBtn")?.click();
-  assignFile(fileInput);
-  assignFile($("studioPreviewFile"));
+  const previewInput = $("studioPreviewFile");
+  if (previewInput) {
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      previewInput.files = transfer.files;
+    } catch (error) {
+      console.warn("Не удалось заполнить поле предпросмотра; файл всё равно будет открыт напрямую:", error);
+    }
+  }
   state.sourceName = file.name;
   state.sourceType = file.type || "";
   state.sourceBookId = bookId;
   $("studioSaveSourceToLibrary").disabled = Boolean(bookId);
   $("studioSaveSourceToLibrary").textContent = bookId ? "✓ Уже в библиотеке" : "＋ В библиотеку";
-  if (fileInput) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  $("openStudioBtn")?.click();
   await openStudioPreview(file);
   previewDownload.disabled = false;
-  previewSay(file.name + " · файл из библиотеки. Оригинал не изменяется; OCR и редактирование запускаются отдельно.");
+  previewSay(file.name + " · файл из библиотеки. Оригинал сохранён в библиотеке; повторный импорт не выполняется.");
   $("studioPreviewMeta")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
 };
 
@@ -148,19 +149,20 @@ async function saveStudioSourceToLibrary() {
   const file = studioPreview.file;
   if (!file) { say("Сначала откройте документ для просмотра."); return; }
   if (state.sourceBookId) { say("Этот оригинал уже находится в библиотеке."); return; }
+  if (typeof window.addMirrorFileToLibrary !== "function") {
+    say("Библиотека ещё загружается. Повторите попытку через мгновение.");
+    return;
+  }
   try {
-    const ext = extOf(file);
-    const id = globalThis.crypto?.randomUUID?.() || ("book-" + Date.now() + "-" + Math.random().toString(36).slice(2));
-    await put("books", {
-      id, name:file.name, title:file.name.replace(/\\.[^.]+$/, "") || "Без названия",
-      author:"Автор не указан", ext, type:file.type || "", data:await file.arrayBuffer(),
-      addedAt:Date.now(), favorite:false, sourceName:file.name, sourceKind:"document-studio-original"
-    });
-    state.sourceBookId = id;
+    const savedId = await window.addMirrorFileToLibrary(file);
+    if (!savedId) {
+      say("Не удалось добавить файл. Проверьте, поддерживается ли его формат.");
+      return;
+    }
+    state.sourceBookId = savedId;
     $("studioSaveSourceToLibrary").disabled = true;
     $("studioSaveSourceToLibrary").textContent = "✓ Сохранено в библиотеке";
-    await window.refreshMirrorLibrary?.();
-    say("Оригинал добавлен в библиотеку. Его можно будет открыть оттуда снова; исходный файл не изменён.");
+    say("Оригинал добавлен в библиотеку вместе с доступными метаданными и обложкой. Исходный файл не изменён.");
   } catch (error) {
     say("Не удалось сохранить файл в библиотеку: " + error.message);
   }
