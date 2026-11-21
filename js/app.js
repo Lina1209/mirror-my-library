@@ -5,7 +5,7 @@ const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
   libraryLayout: localStorage.getItem("mirror-library-layout") === "cards" ? "cards" : "list",
-  epub: null, rendition: null, pdf: null, pdfPage: 1,
+  epub: null, rendition: null, epubText: "", pdf: null, pdfPage: 1, pdfZoom: 1,
   fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
   pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
 };
@@ -35,6 +35,47 @@ function plural(n) {
 }
 function setReaderStatus(text) { $("pageStatus").textContent = text; }
 
+function updateReaderProgress(percentValue, detail = "") {
+  const range = $("readerProgressRange");
+  const value = Math.max(0, Math.min(100, Number(percentValue) || 0));
+  if (range) {
+    range.value = String(Math.round(value * 10));
+    range.disabled = !state.activeBook;
+  }
+  const percentLabel = $("readerProgressPercent");
+  if (percentLabel) percentLabel.textContent = Math.round(value) + "%";
+  const textLabel = $("readerProgressText");
+  if (textLabel) textLabel.textContent = detail || (state.activeBook ? "Прогресс чтения" : "Прогресс чтения");
+}
+
+$("readerProgressRange")?.addEventListener("change", async event => {
+  if (!state.activeBook) return;
+  const fraction = Number(event.target.value) / 1000;
+  if (state.pdf) {
+    state.pdfPage = Math.max(1, Math.min(state.pdf.numPages, Math.round(fraction * (state.pdf.numPages - 1)) + 1));
+    await renderPDFPage();
+  } else if (state.rendition && state.epub) {
+    try {
+      if (!state.epub.locations.length()) await state.epub.locations.generate(1000);
+      const cfi = state.epub.locations.cfiFromPercentage(fraction);
+      if (cfi) await state.rendition.display(cfi);
+    } catch (error) {
+      console.warn("EPUB progress navigation:", error);
+      toast("Не удалось перейти к выбранному месту в EPUB.");
+    }
+  } else if (state.currentTextPages.length) {
+    state.textPage = Math.max(0, Math.min(state.currentTextPages.length - 1, Math.round(fraction * (state.currentTextPages.length - 1))));
+    if (state.activeBook.ext === "fb2") renderFB2Page();
+    else if (state.activeBook.ext === "epub") renderEPUBFallbackPage();
+    else renderTextPage();
+  } else if (state.activeBook.ext === "html") {
+    const content = $("readerContent");
+    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+    content.scrollTop = maxScroll * fraction;
+    updateReaderProgress(fraction * 100);
+  }
+});
+
 async function refresh() {
   const [books, progress] = await Promise.all([getAll("books"), getAll("progress")]);
   const progressByBook = new Map(progress.map(item => [item.bookId, item]));
@@ -43,6 +84,83 @@ async function refresh() {
     progress: progressByBook.get(book.id) || { percent: 0, status: "new" }
   }));
   renderBooks();
+}
+window.refreshMirrorLibrary = refresh;
+
+function createBookCover(book) {
+  const cover = document.createElement("div");
+  const extClass = book.ext?.startsWith("fb2") ? "fb2" : (book.ext || "");
+  cover.className = `cover ${["fb2", "epub", "pdf", "txt"].includes(extClass) ? extClass : ""}`;
+  if (book.coverData) {
+    const image = document.createElement("img");
+    image.src = book.coverData;
+    image.alt = `Обложка книги «${book.title || book.name || "Без названия"}»`;
+    image.loading = "lazy";
+    cover.classList.add("has-real-cover");
+    cover.append(image);
+  } else {
+    const coverTitle = document.createElement("span");
+    coverTitle.textContent = book.title || book.name || "Без названия";
+    cover.append(coverTitle);
+  }
+  return cover;
+}
+
+let readerLibraryTarget = "reader";
+let readerPickerOpenAfterUpload = false;
+let pendingReaderOpenAfterUpload = false;
+
+function renderReaderLibraryPicker() {
+  const term = $("readerLibrarySearch").value.trim().toLocaleLowerCase();
+  const books = state.books.filter(book =>
+    !term || `${book.title || ""} ${book.author || ""} ${book.name || ""}`.toLocaleLowerCase().includes(term)
+  );
+  const grid = $("readerLibraryGrid");
+  const listMode = $("readerPickerList").classList.contains("active");
+  grid.classList.toggle("reader-picker-list", listMode);
+  grid.replaceChildren();
+  for (const book of books) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "reader-picker-book";
+    card.title = `Открыть «${book.title || book.name}»`;
+    const cover = createBookCover(book);
+    const details = document.createElement("span");
+    details.className = "reader-picker-details";
+    const title = document.createElement("strong");
+    title.textContent = book.title || book.name || "Без названия";
+    const author = document.createElement("small");
+    author.textContent = book.author || "Автор не указан";
+    const format = document.createElement("small");
+    format.className = "reader-picker-format";
+    format.textContent = (book.ext || "").toUpperCase();
+    details.append(title, author, format);
+    card.append(cover, details);
+    card.addEventListener("click", () => {
+      $("readerLibraryDialog").close();
+      if (readerLibraryTarget === "studio") sendBookToStudio(book.id);
+      else openBook(book.id);
+    });
+    grid.append(card);
+  }
+  $("readerLibraryEmpty").classList.toggle("hidden", books.length > 0);
+  grid.classList.toggle("hidden", books.length === 0);
+}
+
+function openReaderLibraryPicker(target = "reader", openAfterUpload = false) {
+  readerLibraryTarget = target;
+  readerPickerOpenAfterUpload = target === "reader" && openAfterUpload;
+  $("readerLibraryTitle").textContent = target === "studio" ? "Выбрать документ из библиотеки" : "Книжная полка";
+  $("readerLibrarySubtitle").textContent = target === "studio"
+    ? "Выберите сохранённый файл для просмотра и обработки в Студии"
+    : "Ваша библиотека · обложка, название и автор";
+  $("readerLibrarySearch").value = "";
+  $("readerPickerCards").classList.add("active");
+  $("readerPickerList").classList.remove("active");
+  $("readerPickerCards").setAttribute("aria-pressed", "true");
+  $("readerPickerList").setAttribute("aria-pressed", "false");
+  renderReaderLibraryPicker();
+  $("readerLibraryDialog").showModal();
 }
 
 function renderBooks() {
@@ -76,12 +194,7 @@ function renderBooks() {
     const card = document.createElement("article");
     card.className = "book-card";
 
-    const cover = document.createElement("div");
-    const extClass = book.ext.startsWith("fb2") ? "fb2" : book.ext;
-    cover.className = `cover ${["fb2", "epub", "pdf", "txt"].includes(extClass) ? extClass : ""}`;
-    const coverTitle = document.createElement("span");
-    coverTitle.textContent = book.title;
-    cover.append(coverTitle);
+    const cover = createBookCover(book);
 
     const row = document.createElement("div");
     row.className = "card-row";
@@ -160,7 +273,7 @@ async function sendBookToStudio(bookId) {
   const file = new File([book.data], book.name || book.title || `document.${book.ext}`, { type: mime });
   try {
     $("detailsDialog")?.close();
-    await window.openMirrorBookInStudio(file);
+    await window.openMirrorBookInStudio(file, book.id);
     toast("Документ открыт в студии. Оригинал сохранён в библиотеке.");
   } catch (error) {
     console.error("Open in Document Studio:", error);
@@ -280,8 +393,61 @@ async function ensureScript(test, src, label) {
   if (!test()) throw new Error(`Библиотека ${label} не запустилась.`);
 }
 
+async function createPDFCoverThumbnail(file) {
+  try {
+    const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+    const pdfDocument = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    try {
+      const page = await pdfDocument.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(0.42, 180 / base.width, 240 / base.height);
+      const viewport = page.getViewport({ scale: Math.max(0.1, scale) });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      return canvas.toDataURL("image/jpeg", 0.82);
+    } finally {
+      await pdfDocument.destroy();
+    }
+  } catch (error) {
+    console.warn("Не удалось создать миниатюру первой страницы PDF:", error);
+    return "";
+  }
+}
+
+async function resizeCoverData(data, maxWidth = 360, maxHeight = 520) {
+  if (typeof data !== "string" || !data.startsWith("data:image/")) return "";
+  return new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.84));
+      } catch { resolve(data); }
+    };
+    image.onerror = () => resolve(data);
+    image.src = data;
+  });
+}
+async function fileToCoverData(file) {
+  const raw = await new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(file);
+  });
+  return resizeCoverData(raw);
+}
+
 async function importFiles(fileList) {
   let added = 0;
+  const addedIds = [];
   for (const file of fileList) {
     let ext = extension(file.name);
     if (!["fb2", "fb2.zip", "epub", "pdf", "txt", "html", "htm", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) {
@@ -306,14 +472,19 @@ async function importFiles(fileList) {
           "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "ZIP");
       }
       const metadata = await extractMetadata(data, ext);
+      if (!metadata.coverData && ext === "pdf") metadata.coverData = await createPDFCoverThumbnail(data);
+      if (!metadata.coverData && ["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) metadata.coverData = await fileToCoverData(data);
+      if (metadata.coverData) metadata.coverData = await resizeCoverData(metadata.coverData);
+      const bookId = makeId();
       await put("books", {
-        id: makeId(), name: file.name, title: metadata.title,
-        author: metadata.author, ext, type: file.type,
+        id: bookId, name: file.name, title: metadata.title,
+        author: metadata.author, ...(metadata.coverData ? { coverData: metadata.coverData } : {}), ext, type: file.type,
         data: await data.arrayBuffer(),
         ...(originalArchive ? { downloadData: originalArchive, downloadType: file.type || "application/zip" } : {}),
         addedAt: Date.now(), favorite: false
       });
       added++;
+      addedIds.push(bookId);
     } catch (error) {
       console.error(error);
       toast(`${file.name}: ${error.message}`);
@@ -321,7 +492,12 @@ async function importFiles(fileList) {
   }
   await refresh();
   if (added) toast(`Добавлено: ${added} ${plural(added)}`);
+  return addedIds;
 }
+window.addMirrorFileToLibrary = async file => {
+  const ids = await importFiles([file]);
+  return ids[0] || null;
+};
 
 async function saveProgress(bookId, value, locator = {}) {
   const valuePercent = percent(value);
@@ -352,6 +528,7 @@ function updateTextNav(label = "Страница") {
   $("prevBtn").disabled = state.textPage <= 0;
   $("nextBtn").disabled = state.textPage >= state.currentTextPages.length - 1;
   setReaderStatus(`${label} ${state.textPage + 1} из ${state.currentTextPages.length}`);
+  updateReaderProgress((state.textPage + 1) / Math.max(1, state.currentTextPages.length) * 100, label === "Страница" ? "Позиция в книге" : label);
 }
 
 function renderTextPage() {
@@ -368,7 +545,10 @@ function renderTextPage() {
 }
 
 function renderFB2Page() {
-  $("readerContent").innerHTML = state.currentTextPages[state.textPage] || "";
+  const content = $("readerContent");
+  content.classList.add("fb2-content");
+  content.style.setProperty("--fb2-font-size", `${state.fontSize}px`);
+  content.innerHTML = state.currentTextPages[state.textPage] || "";
   updateTextNav("Раздел");
   if (state.activeBook) {
     saveProgress(state.activeBook.id,
@@ -402,29 +582,118 @@ async function openHTML(book, progress) {
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
   setReaderStatus("HTML-документ");
+  updateReaderProgress(progress?.percent || 0, "Позиция в документе");
   await saveProgress(book.id, progress?.percent || 0, { page: progress?.page || 0 });
 }
 
 async function openEPUB(book, progress) {
-  await ensureScript(() => !!window.ePub,
-    "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js", "EPUB");
-  const content = $("readerContent");
-  content.replaceChildren();
-  state.epub = window.ePub(book.data);
-  state.rendition = state.epub.renderTo(content, {
-    width: "100%", height: "65vh", flow: "paginated",
-    spread: "none", allowScriptedContent: false
+  try {
+    await ensureScript(() => !!window.ePub,
+      "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js", "EPUB");
+    const content = $("readerContent");
+    content.replaceChildren();
+    state.epub = window.ePub(book.data.slice ? book.data.slice(0) : book.data);
+    state.rendition = state.epub.renderTo(content, {
+      width: "100%", height: "65vh", flow: "paginated",
+      spread: "none", allowScriptedContent: false
+    });
+    state.rendition.on("relocated", location => {
+      const percentage = location.start?.percentage || 0;
+      saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
+      const displayed = location.start?.displayed;
+      const pageDetail = displayed?.total ? `Страница ${displayed.page} из ${displayed.total}` : "Позиция в EPUB";
+      setReaderStatus(pageDetail);
+      updateReaderProgress(percentage * 100, pageDetail);
+    });
+    await state.rendition.display(progress?.cfi || undefined);
+    state.rendition.themes.fontSize(`${state.fontSize}px`);
+    $("prevBtn").disabled = false;
+    $("nextBtn").disabled = false;
+    setReaderStatus("EPUB · полная версия");
+  } catch (error) {
+    console.warn("EPUB.js не открыл книгу; включаем резервный просмотр:", error);
+    state.rendition?.destroy?.();
+    state.rendition = null;
+    state.epub = null;
+    await openEPUBFallback(book, progress, error);
+  }
+}
+
+function resolveArchivePath(baseFile, relativePath) {
+  const clean = String(relativePath || "").split(/[?#]/)[0];
+  const parts = String(baseFile || "").split("/");
+  parts.pop();
+  for (const part of clean.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+async function archiveImageData(zip, baseFile, source) {
+  const path = resolveArchivePath(baseFile, source);
+  const entry = zip.file(path);
+  if (!entry) return "";
+  const ext=path.split(".").pop().toLowerCase();
+  const mimeByExt={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",gif:"image/gif",webp:"image/webp"};
+  const mime=mimeByExt[ext];
+  if(!mime)return "";
+  const base64=await entry.async("base64");
+  return base64?"data:"+mime+";base64,"+base64:"";
+}
+
+async function openEPUBFallback(book, progress, cause) {
+  await ensureScript(() => !!window.JSZip,
+    "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "EPUB archive reader");
+  const zip = await window.JSZip.loadAsync(book.data.slice ? book.data.slice(0) : book.data);
+  const containerFile = zip.file("META-INF/container.xml");
+  if (!containerFile) throw new Error("В EPUB отсутствует META-INF/container.xml.");
+  const container = new DOMParser().parseFromString(await containerFile.async("string"), "application/xml");
+  const opfPath = container.getElementsByTagNameNS("*", "rootfile")[0]?.getAttribute("full-path");
+  if (!opfPath) throw new Error("В EPUB не найден путь к файлу package.opf.");
+  const opfFile = zip.file(opfPath);
+  if (!opfFile) throw new Error("Не найден файл описания книги EPUB.");
+  const opf = new DOMParser().parseFromString(await opfFile.async("string"), "application/xml");
+  if (opf.querySelector("parsererror")) throw new Error("Файл описания EPUB повреждён.");
+  const manifest = new Map();
+  [...opf.getElementsByTagNameNS("*", "item")].forEach(item => {
+    const id=item.getAttribute("id"),href=item.getAttribute("href"),type=item.getAttribute("media-type");
+    if(id&&href)manifest.set(id,{href,type});
   });
-  state.rendition.on("relocated", location => {
-    const percentage = location.start?.percentage || 0;
-    saveProgress(book.id, percentage * 100, { cfi: location.start?.cfi || "" });
-    setReaderStatus(`Прочитано ${Math.round(percentage * 100)}%`);
-  });
-  await state.rendition.display(progress?.cfi || undefined);
-  state.rendition.themes.fontSize(`${state.fontSize}px`);
-  $("prevBtn").disabled = false;
-  $("nextBtn").disabled = false;
-  setReaderStatus("EPUB");
+  const chapters=[];
+  const spine=[...opf.getElementsByTagNameNS("*","itemref")];
+  for(const itemref of spine){
+    const item=manifest.get(itemref.getAttribute("idref"));
+    if(!item||!/xhtml|html/i.test(item.type||""))continue;
+    const chapterPath=resolveArchivePath(opfPath,item.href);
+    const chapterFile=zip.file(chapterPath);
+    if(!chapterFile)continue;
+    const source=await chapterFile.async("string");
+    const doc=new DOMParser().parseFromString(source,"text/html");
+    doc.querySelectorAll("script,iframe,object,embed,form,video,audio").forEach(node=>node.remove());
+    for(const image of [...doc.querySelectorAll("img, image")]){
+      const src=image.getAttribute("src")||image.getAttribute("href")||image.getAttribute("xlink:href")||"";
+      if(!src||/^(https?:|data:|#)/i.test(src)){if(/^https?:/i.test(src))image.removeAttribute("src");continue;}
+      const data=await archiveImageData(zip,chapterPath,src);
+      if(data)image.setAttribute("src",data);else image.remove();
+    }
+    const content=safeHTML(doc.body?.innerHTML||"");
+    if(content.trim())chapters.push(content);
+  }
+  if(!chapters.length)throw new Error("В EPUB не удалось найти читаемые главы.");
+  state.currentTextPages=chapters;
+  state.textPage=Math.max(0,Math.min(Number(progress?.page)||0,chapters.length-1));
+  state.epubText=chapters.map(html=>{const doc=new DOMParser().parseFromString(html,"text/html");return doc.body?.innerText||doc.body?.textContent||"";}).join("\n\n");
+  renderEPUBFallbackPage();
+  setReaderStatus("EPUB · резервный режим чтения");
+}
+
+function renderEPUBFallbackPage() {
+  const content=$("readerContent");
+  content.innerHTML=safeHTML(state.currentTextPages[state.textPage]||"");
+  updateTextNav("Глава");
+  if(state.activeBook)saveProgress(state.activeBook.id,(state.textPage+1)/state.currentTextPages.length*100,{page:state.textPage});
 }
 
 async function openPDF(book, progress) {
@@ -447,7 +716,7 @@ async function renderPDFPage() {
   const page = await state.pdf.getPage(state.pdfPage);
   const base = page.getViewport({ scale: 1 });
   const availableWidth = Math.max(280, Math.min(760, window.innerWidth - 64));
-  const scale = Math.min(1.5, availableWidth / base.width);
+  const scale = Math.min(1.5, availableWidth / base.width) * Math.max(0.65, Math.min(3, state.pdfZoom || 1));
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -487,13 +756,18 @@ async function renderPDFPage() {
   $("prevBtn").disabled = state.pdfPage <= 1;
   $("nextBtn").disabled = state.pdfPage >= state.pdf.numPages;
   setReaderStatus(`Страница ${state.pdfPage} из ${state.pdf.numPages}`);
+  updateReaderProgress(state.pdfPage / state.pdf.numPages * 100, `Страница ${state.pdfPage} из ${state.pdf.numPages}`);
   await saveProgress(state.activeBook.id, state.pdfPage / state.pdf.numPages * 100,
     { page: state.pdfPage });
 }
 
 
 function ensurePDFNavigationControls(){
-  if($("pdfNavigationPanel")){$("pdfJumpPage").value=String(state.pdfPage);return;}
+  if($("pdfNavigationPanel")){
+    $("pdfJumpPage").value=String(state.pdfPage);
+    const zoomLabel=$("pdfZoomValue");if(zoomLabel)zoomLabel.textContent=Math.round((state.pdfZoom||1)*100)+"%";
+    return;
+  }
   const panel=document.createElement("section");panel.id="pdfNavigationPanel";panel.className="pdf-navigation-panel";
   const pageLabel=document.createElement("label");pageLabel.textContent="Перейти к странице ";
   const pageInput=document.createElement("input");pageInput.id="pdfJumpPage";pageInput.type="number";pageInput.min="1";pageInput.value=String(state.pdfPage);pageInput.inputMode="numeric";pageInput.setAttribute("aria-label","Номер страницы PDF");
@@ -538,7 +812,18 @@ function ensurePDFNavigationControls(){
       row.append(jump,removeBtn);marks.append(row);
     });
   };
-  panel.append(pageLabel,searchLabel,marksButton,results,marks);$("readerMeta").append(panel);pageInput.value=String(state.pdfPage);
+  const zoomGroup=document.createElement("div");zoomGroup.className="pdf-reader-zoom";
+  const zoomTitle=document.createElement("span");zoomTitle.textContent="Масштаб страницы ";
+  const zoomOut=document.createElement("button");zoomOut.type="button";zoomOut.className="secondary";zoomOut.textContent="−";zoomOut.setAttribute("aria-label","Уменьшить страницу PDF");
+  const zoomValue=document.createElement("strong");zoomValue.id="pdfZoomValue";zoomValue.textContent=Math.round((state.pdfZoom||1)*100)+"%";
+  const zoomIn=document.createElement("button");zoomIn.type="button";zoomIn.className="secondary";zoomIn.textContent="+";zoomIn.setAttribute("aria-label","Увеличить страницу PDF");
+  const zoomFit=document.createElement("button");zoomFit.type="button";zoomFit.className="secondary";zoomFit.textContent="По ширине";
+  const changeZoom=async(value)=>{state.pdfZoom=Math.max(0.65,Math.min(3,Math.round(value*100)/100));zoomValue.textContent=Math.round(state.pdfZoom*100)+"%";await renderPDFPage();};
+  zoomOut.onclick=()=>changeZoom((state.pdfZoom||1)-0.2);
+  zoomIn.onclick=()=>changeZoom((state.pdfZoom||1)+0.2);
+  zoomFit.onclick=()=>changeZoom(1);
+  zoomGroup.append(zoomTitle,zoomOut,zoomValue,zoomIn,zoomFit);
+  panel.append(pageLabel,zoomGroup,searchLabel,marksButton,results,marks);$("readerMeta").append(panel);pageInput.value=String(state.pdfPage);
 }
 
 function ensurePDFEditorControls() {
@@ -1077,7 +1362,9 @@ async function openBook(bookId) {
   state.activeBook = book;
   state.epub = null;
   state.rendition = null;
+  state.epubText = "";
   state.pdf = null;
+  state.pdfZoom = 1;
   state.pdfOverlay = null;
   state.pdfAnnotations = {};
   state.pdfUndo = {};
@@ -1086,9 +1373,12 @@ async function openBook(bookId) {
 
   $("libraryView").classList.add("hidden");
   $("readerView").classList.remove("hidden");
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  $("readerNavBtn")?.classList.add("active");
   $("readerBookTitle").textContent = book.title;
   $("readerMeta").replaceChildren(document.createTextNode(`${book.author || "Автор не указан"} · ${book.ext.toUpperCase()}`));
   $("readerContent").textContent = "Загружаем книгу…";
+  $("readerContent").classList.remove("fb2-content");
   $("readerContent").style.fontSize = `${state.fontSize}px`;
 
   const progress = await getOne("progress", bookId);
@@ -1119,6 +1409,7 @@ $("prevBtn").onclick = async () => {
   if (state.textPage > 0) {
     state.textPage--;
     if (state.activeBook?.ext === "fb2") renderFB2Page();
+    else if (state.activeBook?.ext === "epub" && !state.rendition) renderEPUBFallbackPage();
     else renderTextPage();
   }
 };
@@ -1131,6 +1422,7 @@ $("nextBtn").onclick = async () => {
   if (state.textPage < state.currentTextPages.length - 1) {
     state.textPage++;
     if (state.activeBook?.ext === "fb2") renderFB2Page();
+    else if (state.activeBook?.ext === "epub" && !state.rendition) renderEPUBFallbackPage();
     else renderTextPage();
   }
 };
@@ -1144,37 +1436,103 @@ $("backBtn").onclick = async () => {
   state.activeBook = null;
   $("readerView").classList.add("hidden");
   $("libraryView").classList.remove("hidden");
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  $("libraryNavBtn")?.classList.add("active");
   await refresh();
 };
 $("fontUp").onclick = () => {
   state.fontSize = Math.min(30, state.fontSize + 1);
   localStorage.setItem("mirror-font-size", String(state.fontSize));
   $("readerContent").style.fontSize = `${state.fontSize}px`;
+  $("readerContent").style.setProperty("--fb2-font-size", `${state.fontSize}px`);
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
 $("fontDown").onclick = () => {
   state.fontSize = Math.max(13, state.fontSize - 1);
   localStorage.setItem("mirror-font-size", String(state.fontSize));
   $("readerContent").style.fontSize = `${state.fontSize}px`;
+  $("readerContent").style.setProperty("--fb2-font-size", `${state.fontSize}px`);
   state.rendition?.themes.fontSize(`${state.fontSize}px`);
 };
-function getSelectedReaderText() {
-  const selection = window.getSelection?.();
-  const selected = selection?.toString().trim() || "";
-  if (!selected || !$("readerContent").contains(selection.anchorNode)) return "";
-  return selected;
+$("readerFontUpQuick").onclick = () => $("fontUp").click();
+$("readerFontDownQuick").onclick = () => $("fontDown").click();
+// Запоминаем выделение до нажатия кнопок меню: на мобильных браузерах
+// фокус панели иногда снимает визуальное выделение раньше обработчика click.
+let lastReaderSelection = "";
+let lastReaderSelectionBookId = null;
+function rememberReaderSelection() {
+  const selected = getSelectedReaderText(false);
+  if (selected) {
+    lastReaderSelection = selected;
+    lastReaderSelectionBookId = state.activeBook?.id ?? null;
+  }
 }
+function getSelectedReaderText(useCache = true) {
+  const root = $("readerContent");
+  const selections = [document.getSelection?.()];
+  // EPUB.js отображает книгу во вложенном iframe: выделение принадлежит его document.
+  root.querySelectorAll("iframe").forEach(frame => {
+    try { selections.push(frame.contentWindow?.getSelection?.()); } catch {}
+  });
+  for (const selection of selections) {
+    const selected = selection?.toString().trim() || "";
+    if (!selected || !selection.anchorNode) continue;
+    const anchor = selection.anchorNode;
+    const belongsToReader = root.contains(anchor) ||
+      (anchor.ownerDocument?.defaultView?.frameElement && root.contains(anchor.ownerDocument.defaultView.frameElement));
+    if (belongsToReader) return selected;
+  }
+  return useCache && lastReaderSelectionBookId === (state.activeBook?.id ?? null)
+    ? lastReaderSelection : "";
+}
+document.addEventListener("selectionchange", rememberReaderSelection);
+$("readerContent").addEventListener("pointerup", rememberReaderSelection);
+$("readerContent").addEventListener("keyup", rememberReaderSelection);
+["copySelectionBtn", "shareSelectionBtn"].forEach(id => {
+  $(id).addEventListener("pointerdown", rememberReaderSelection);
+  $(id).addEventListener("touchstart", rememberReaderSelection, { passive: true });
+});
 async function copySelectedText() {
   const selected = getSelectedReaderText();
   if (!selected) { toast("Сначала выделите текст в документе"); return; }
-  try { await navigator.clipboard.writeText(selected); toast("Выделенный текст скопирован"); }
-  catch { const area=document.createElement("textarea"); area.value=selected; document.body.append(area); area.select(); const ok=document.execCommand("copy"); area.remove(); toast(ok ? "Выделенный текст скопирован" : "Не удалось скопировать текст"); }
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(selected);
+    else throw new Error("Clipboard API unavailable");
+    toast("Выделенный текст скопирован — теперь его можно вставить в другое приложение");
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = selected;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    area.remove();
+    toast(ok ? "Выделенный текст скопирован" : "Не удалось скопировать текст. Попробуйте системное меню выделения Android.");
+  }
 }
 async function shareSelectedText() {
-  const selected=getSelectedReaderText();
+  const selected = getSelectedReaderText();
   if (!selected) { toast("Сначала выделите текст в документе"); return; }
-  try { if(navigator.share) await navigator.share({title:state.activeBook?.title || "Текст из ©Mirror",text:selected}); else { await navigator.clipboard.writeText(selected); toast("Текст скопирован — вставьте его в нужное приложение"); } }
-  catch(error) { if(error.name!=="AbortError") toast("Не удалось открыть меню отправки"); }
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: state.activeBook?.title || "Текст из ©Mirror", text: selected });
+    } else {
+      await copySelectedText();
+      toast("Если меню отправки недоступно, текст уже скопирован — вставьте его в нужное приложение");
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(selected);
+          toast("Меню отправки не открылось. Текст скопирован — вставьте его вручную.");
+        } else toast("Не удалось открыть меню отправки");
+      } catch { toast("Не удалось отправить или скопировать текст"); }
+    }
+  }
 }
 async function shareCurrentBook() {
   const book=state.activeBook; if(!book) return;
@@ -1183,8 +1541,40 @@ async function shareCurrentBook() {
   try { if(navigator.share && navigator.canShare?.({files:[file]})) await navigator.share({title:book.title,text:"Файл из моей библиотеки ©Mirror",files:[file]}); else downloadBook(book); }
   catch(error) { if(error.name!=="AbortError") toast("Не удалось поделиться файлом"); }
 }
+async function getCurrentPDFPageText() {
+  if (!state.pdf) return "";
+  const page = await state.pdf.getPage(state.pdfPage);
+  const content = await page.getTextContent();
+  return content.items.map(item => typeof item.str === "string" ? item.str + (item.hasEOL ? "\\n" : " ") : "")
+    .join("").replace(/[ \\t]+/g, " ").trim();
+}
+async function copyPDFPageText() {
+  if (!state.pdf) { toast("Эта команда доступна для PDF"); return; }
+  try {
+    const text = await getCurrentPDFPageText();
+    if (!text) { toast("На странице нет текстового слоя. Если это скан, сначала выполните OCR в Студии документов."); return; }
+    await navigator.clipboard.writeText(text);
+    toast("Текст страницы PDF скопирован");
+  } catch { toast("Не удалось скопировать текст страницы PDF"); }
+}
+async function sharePDFPageText() {
+  if (!state.pdf) { toast("Эта команда доступна для PDF"); return; }
+  try {
+    const text = await getCurrentPDFPageText();
+    if (!text) { toast("На странице нет текстового слоя. Для скана потребуется OCR."); return; }
+    if (navigator.share) await navigator.share({title: `${state.activeBook?.title || "PDF"} — страница ${state.pdfPage}`, text});
+    else {
+      await navigator.clipboard.writeText(text);
+      toast("Текст страницы скопирован — вставьте его в нужное приложение");
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") toast("Не удалось поделиться текстом страницы PDF");
+  }
+}
 $("copySelectionBtn").onclick=copySelectedText;
 $("shareSelectionBtn").onclick=shareSelectedText;
+$("copyPDFPageTextBtn").onclick=copyPDFPageText;
+$("sharePDFPageTextBtn").onclick=sharePDFPageText;
 $("shareBookBtn").onclick=shareCurrentBook;
 $("bookmarkBtn").onclick = async () => {
   if (!state.activeBook) return;
@@ -1198,14 +1588,47 @@ $("bookmarkBtn").onclick = async () => {
   toast("Закладка сохранена");
 };
 
-$("chooseFiles").onclick = () => $("fileInput").click();
-$("addTopBtn").onclick = () => $("fileInput").click();
-$("emptyAddBtn").onclick = () => $("fileInput").click();
-$("fileInput").onchange = event => {
-  importFiles([...event.target.files]);
+$("chooseFiles").onclick = () => { pendingReaderOpenAfterUpload = false; $("fileInput").click(); };
+$("addTopBtn").onclick = () => { pendingReaderOpenAfterUpload = false; $("fileInput").click(); };
+$("emptyAddBtn").onclick = () => { pendingReaderOpenAfterUpload = false; $("fileInput").click(); };
+$("fileInput").onchange = async event => {
+  const files = [...event.target.files];
+  const shouldOpenInReader = pendingReaderOpenAfterUpload;
+  pendingReaderOpenAfterUpload = false;
   event.target.value = "";
+  const addedIds = await importFiles(files);
+  if (shouldOpenInReader && addedIds.length) await openBook(addedIds[0]);
 };
+$("fileInput").addEventListener("cancel", () => { pendingReaderOpenAfterUpload = false; });
 $("searchInput").oninput = renderBooks;
+$("readerLibraryClose").onclick = () => { readerPickerOpenAfterUpload = false; $("readerLibraryDialog").close(); };
+$("readerLibraryDialog").addEventListener("close", () => { readerPickerOpenAfterUpload = false; });
+$("readerLibrarySearch").oninput = renderReaderLibraryPicker;
+$("libraryShelfBtn").onclick = () => openReaderLibraryPicker("reader");
+$("studioShelfBtn").onclick = () => openReaderLibraryPicker("studio");
+$("studioChooseFromLibrary").onclick = () => openReaderLibraryPicker("studio");
+$("readerLibraryUploadTop").onclick = () => {
+  pendingReaderOpenAfterUpload = readerLibraryTarget === "reader" && readerPickerOpenAfterUpload;
+  $("readerLibraryDialog").close();
+  if (readerLibraryTarget === "studio") $("studioPreviewFile").click();
+  else $("fileInput").click();
+};
+$("readerLibraryUpload").onclick = () => {
+  pendingReaderOpenAfterUpload = readerLibraryTarget === "reader" && readerPickerOpenAfterUpload;
+  $("readerLibraryDialog").close();
+  if (readerLibraryTarget === "studio") $("studioPreviewFile").click();
+  else $("fileInput").click();
+};
+$("readerPickerCards").onclick = () => {
+  $("readerPickerCards").classList.add("active"); $("readerPickerList").classList.remove("active");
+  $("readerPickerCards").setAttribute("aria-pressed", "true"); $("readerPickerList").setAttribute("aria-pressed", "false");
+  renderReaderLibraryPicker();
+};
+$("readerPickerList").onclick = () => {
+  $("readerPickerList").classList.add("active"); $("readerPickerCards").classList.remove("active");
+  $("readerPickerList").setAttribute("aria-pressed", "true"); $("readerPickerCards").setAttribute("aria-pressed", "false");
+  renderReaderLibraryPicker();
+};
 $("cardsViewBtn")?.addEventListener("click", () => {
   state.libraryLayout = "cards";
   localStorage.setItem("mirror-library-layout", "cards");
@@ -1215,6 +1638,25 @@ $("listViewBtn")?.addEventListener("click", () => {
   state.libraryLayout = "list";
   localStorage.setItem("mirror-library-layout", "list");
   renderBooks();
+});
+
+function showReaderHome() {
+  if (state.activeBook) return;
+  $("libraryView").classList.add("hidden");
+  $("readerView").classList.remove("hidden");
+  $("readerBookTitle").textContent = "Читалка";
+  $("readerMeta").textContent = "Ваша постоянная читалка";
+  $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>';
+  $("prevBtn").disabled = true;
+  $("nextBtn").disabled = true;
+  $("pageStatus").textContent = "Готово к чтению";
+  updateReaderProgress(0, "Прогресс чтения");
+  $("readerChooseBookBtn").onclick = () => $("backBtn").click();
+}
+$("readerNavBtn")?.addEventListener("click", () => {
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
+  $("readerNavBtn").classList.add("active");
+  showReaderHome();
 });
 
 document.querySelectorAll(".nav-item[data-filter]").forEach(button => {
@@ -1306,7 +1748,36 @@ document.addEventListener("click", event => {
   if(!event.target.closest(".reader-menu-wrap")) closeReaderMenu();
 });
 document.addEventListener("keydown", event => {
-  if(event.key === "Escape") closeReaderMenu();
+  if(event.key === "Escape") { closeReaderMenu(); closeReaderActionsMenu(); }
+});
+const readerActionsButton = $("readerActionsBtn");
+const readerActionsMenu = $("readerActionsMenu");
+function closeReaderActionsMenu() {
+  readerActionsMenu.hidden = true;
+  readerActionsButton.setAttribute("aria-expanded","false");
+}
+readerActionsButton.addEventListener("click", event => {
+  event.stopPropagation();
+  const opening = readerActionsMenu.hidden;
+  readerActionsMenu.hidden = !opening;
+  readerActionsButton.setAttribute("aria-expanded", String(opening));
+});
+readerActionsMenu.addEventListener("click", event => {
+  const item = event.target.closest("[data-reader-action]");
+  if (!item) return;
+  const action = item.dataset.readerAction;
+  closeReaderActionsMenu();
+  if (action === "open-device") { pendingReaderOpenAfterUpload = true; $("fileInput").click(); }
+  else if (action === "open-library") openReaderLibraryPicker("reader", true);
+  else if (action === "library") $("backBtn").click();
+  else if (!state.activeBook) toast("Сначала откройте книгу.");
+  else if (action === "details") { showDetails(state.activeBook); $("detailsDialog").showModal(); }
+  else if (action === "download") downloadBook(state.activeBook);
+  else if (action === "share") shareCurrentBook();
+  else if (action === "bookmark") $("bookmarkBtn").click();
+});
+document.addEventListener("click", event => {
+  if(!event.target.closest(".reader-actions-wrap")) closeReaderActionsMenu();
 });
 let touchX=0,touchY=0;$("readerContent").addEventListener("touchstart",e=>{touchX=e.changedTouches[0].clientX;touchY=e.changedTouches[0].clientY;},{passive:true});$("readerContent").addEventListener("touchend",e=>{const dx=e.changedTouches[0].clientX-touchX,dy=e.changedTouches[0].clientY-touchY;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25){if(dx<0)$("nextBtn").click();else $("prevBtn").click();}},{passive:true});
 
@@ -1384,6 +1855,7 @@ async function getCurrentSpeechText() {
     }
     return pages.join("\n\n");
   }
+  if(state.epubText)return state.epubText;
   if(state.epub){
     try{
       const spine=state.epub.spine?.items||[],sections=[];

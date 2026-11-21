@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: ["main"]
   push:
-    branches: ["main", "feature/google-cloud-ui-translation"]
+    branches: ["**"]
 jobs:
   syntax:
     runs-on: ubuntu-latest
