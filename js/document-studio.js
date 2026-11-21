@@ -313,7 +313,7 @@ async function recognizePDF(file,worker){
       pageBlock.classList.add("studio-reconstructed-page");
       pageBlock.dataset.pageWidth=String(pageWidth);
       pageBlock.dataset.pageHeight=String(pageHeight);
-      pageBlock.style.cssText="position:relative;width:"+pageWidth+"px;height:"+pageHeight+"px;max-width:100%;margin:18px auto 28px;padding:0;border:1px solid #ddd;overflow:hidden;background:#fff;box-sizing:border-box;";
+      pageBlock.style.cssText="position:relative;width:"+pageWidth+"px;height:"+pageHeight+"px;margin:18px auto 28px;padding:0;border:1px solid #ddd;overflow:hidden;background:#fff;box-sizing:border-box;";
       pageBlock.append(pageImage,layer);
       const note=document.createElement("p");
       note.className="studio-source-caption";
