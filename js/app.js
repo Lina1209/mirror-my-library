@@ -379,7 +379,7 @@ async function openEPUB(book, progress) {
 }
 
 async function openPDF(book, progress) {
-  state.pdfAnnotations = book.pdfAnnotations || {};
+  state.pdfAnnotations = book.pdfAnnotations || {};\n  state.pdfFormValues = book.pdfFormValues || {};
   state.pdfImageObjects = book.pdfImageObjects || {};
   state.pdfTextObjects = book.pdfTextObjects || {};
   state.pdfUndo = {};
@@ -468,10 +468,10 @@ function ensurePDFEditorControls() {
   const imageInput=document.createElement("input");imageInput.id="pdfImageInput";imageInput.type="file";imageInput.accept="image/png,image/jpeg,image/webp";imageInput.hidden=true;imageInput.onchange=()=>insertPDFImage(imageInput.files?.[0]);
   const ocrEdit=document.createElement("button");ocrEdit.type="button";ocrEdit.className="secondary";ocrEdit.textContent="OCR строки";ocrEdit.onclick=recognizePDFPageLines;
   const undo=document.createElement("button");undo.type="button";undo.className="secondary";undo.textContent="↶ Отменить";undo.onclick=undoPDFAnnotation;
-  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;
+  const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Экспорт копии PDF";save.onclick=exportEditedPDF;\n  const forms=document.createElement("button");forms.type="button";forms.className="secondary";forms.textContent="Заполнить форму PDF";forms.onclick=openPDFFormEditor;
   const downloadLink=document.createElement("a");downloadLink.id="pdfExportDownloadLink";downloadLink.className="secondary";downloadLink.textContent="↓ Скачать PDF";downloadLink.hidden=true;
   const note=document.createElement("small");note.className="pdf-editor-note";note.textContent="Аннотации сохраняются отдельно; экспорт создаёт копию. Белая плашка только визуально закрывает фрагмент и не удаляет скрытые данные.";
-  toolbar.append(colorLabel,widthLabel,sizeLabel,textColorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,imageButton,ocrEdit,undo,save,downloadLink,note);
+  toolbar.append(colorLabel,widthLabel,sizeLabel,textColorLabel,fontLabel,objectColorLabel,boldLabel,italicLabel,backgroundLabel,imageButton,forms,ocrEdit,undo,save,downloadLink,note);
   $("readerMeta").append(toolbar,imageInput);
   const extract=document.createElement("button");extract.id="pdfTextBtn";extract.className="secondary";extract.textContent="Извлечь текст / OCR";extract.onclick=extractPDFText;$("readerMeta").append(extract);
 }
@@ -780,6 +780,20 @@ async function exportEditedPDF(){
     await loadGlobalScript(()=>!!window.PDFLib?.PDFDocument,
       "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF");
     const PDFDocument=window.PDFLib.PDFDocument,output=await PDFDocument.load(state.activeBook.data.slice(0));
+    const storedFormValues=state.pdfFormValues||state.activeBook.pdfFormValues||{};
+    if(Object.keys(storedFormValues).length){
+      const form=output.getForm();
+      for(const field of form.getFields()){
+        const name=field.getName(),value=storedFormValues[name];if(value===undefined)continue;
+        try{
+          if(field instanceof window.PDFLib.PDFTextField)field.setText(String(value));
+          else if(field instanceof window.PDFLib.PDFCheckBox){value?field.check():field.uncheck();}
+          else if(field instanceof window.PDFLib.PDFRadioGroup)field.select(String(value));
+          else if(field instanceof window.PDFLib.PDFDropdown)field.select(String(value));
+          else if(field instanceof window.PDFLib.PDFOptionList)Array.isArray(value)?field.select(value):field.select(String(value));
+        }catch(error){console.warn("Skipping unsupported form field",name,error);}
+      }
+    }
     const editedPages=new Set([...Object.keys(state.pdfAnnotations),...Object.keys(state.pdfImageObjects),...Object.keys(state.pdfTextObjects)]);
     for(const pageNumber of editedPages){
       const index=Number(pageNumber)-1;if(index<0||index>=output.getPageCount())continue;
@@ -1381,3 +1395,50 @@ ttsPauseButton?.addEventListener("click", () => {
 ttsStopButton?.addEventListener("click", stopBookSpeech);
 $("backBtn")?.addEventListener("click", stopBookSpeech);
 window.addEventListener("beforeunload", stopBookSpeech);
+async function openPDFFormEditor(){
+  if(!state.pdf||!state.activeBook)return;
+  try{
+    await loadGlobalScript(()=>!!window.PDFLib?.PDFDocument,"https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","редактор PDF-форм");
+    const doc=await window.PDFLib.PDFDocument.load(state.activeBook.data.slice(0)),form=doc.getForm(),fields=form.getFields();
+    let panel=$("pdfFormPanel");if(!panel){panel=document.createElement("section");panel.id="pdfFormPanel";panel.className="pdf-form-panel";$("readerMeta").append(panel);}
+    panel.replaceChildren();
+    const title=document.createElement("h3");title.textContent="Интерактивные поля PDF";panel.append(title);
+    if(!fields.length){const info=document.createElement("p");info.textContent="В этом документе не обнаружены интерактивные поля формы. Для подписи можно использовать инструмент «Перо» или добавить изображение подписи.";panel.append(info);panel.classList.remove("hidden");return;}
+    const formValues=state.pdfFormValues||{},rows=[];
+    fields.forEach(field=>{
+      const name=field.getName(),type=field.constructor?.name||"Field",row=document.createElement("label");row.className="pdf-form-field";
+      const label=document.createElement("span");label.textContent=name+" · "+type;row.append(label);
+      let control,kind="text",value=formValues[name];
+      if(field instanceof window.PDFLib.PDFTextField){
+        control=document.createElement("textarea");control.rows=2;kind="text";if(value===undefined)value=field.getText()||"";
+      }else if(field instanceof window.PDFLib.PDFCheckBox){
+        control=document.createElement("input");control.type="checkbox";kind="checkbox";if(value===undefined)value=field.isChecked();
+      }else if(field instanceof window.PDFLib.PDFRadioGroup){
+        control=document.createElement("select");kind="radio";const options=field.getOptions();options.forEach(opt=>control.append(new Option(opt,opt)));if(value===undefined)value=field.getSelected()||"";
+      }else if(field instanceof window.PDFLib.PDFDropdown||field instanceof window.PDFLib.PDFOptionList){
+        control=document.createElement("select");kind=field instanceof window.PDFLib.PDFOptionList?"list":"dropdown";const opts=field.getOptions();if(kind==="list")control.multiple=!!field.isMultiselect?.();opts.forEach(opt=>control.append(new Option(opt,opt)));if(value===undefined)value=field.getSelected?.()||"";
+      }else{
+        const note=document.createElement("small");note.textContent="Тип поля не поддерживается для редактирования в этой панели.";row.append(note);panel.append(row);return;
+      }
+      control.dataset.fieldName=name;control.dataset.fieldKind=kind;
+      if(kind==="checkbox")control.checked=!!value;
+      else if(kind==="list"&&Array.isArray(value)){[...control.options].forEach(option=>option.selected=value.includes(option.value));}
+      else if(value!==undefined)control.value=String(value);
+      row.append(control);panel.append(row);rows.push(control);
+    });
+    const actions=document.createElement("div");actions.className="pdf-form-actions";
+    const apply=document.createElement("button");apply.type="button";apply.className="primary";apply.textContent="Сохранить значения формы";
+    apply.onclick=async()=>{
+      const values={};
+      rows.forEach(control=>{
+        const name=control.dataset.fieldName,kind=control.dataset.fieldKind;
+        values[name]=kind==="checkbox"?control.checked:kind==="list"?[...control.selectedOptions].map(option=>option.value):control.value;
+      });
+      state.pdfFormValues=values;state.activeBook.pdfFormValues=values;
+      await put("books",state.activeBook);toast("Значения формы сохранены локально. При экспорте будут перенесены в PDF.");
+    };
+    const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Скрыть";close.onclick=()=>panel.classList.add("hidden");
+    actions.append(apply,close);panel.append(actions);panel.classList.remove("hidden");
+  }catch(error){console.error("PDF form editor:",error);toast("Не удалось открыть PDF-форму: "+error.message);}
+}
+
