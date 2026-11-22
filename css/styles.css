@@ -1117,3 +1117,14 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 }
 .studio-editor .studio-ocr-details summary{cursor:pointer;font-weight:600;padding:4px 0}
 .studio-editor .studio-ocr-details[open] .studio-recognized-text{margin-top:10px}
+
+/* Document Studio: OCR text stays visible/editable and export formats open as a clear action panel. */
+.studio-ocr-details{display:block!important;margin:8px auto 22px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);max-width:900px}
+.studio-ocr-details summary{cursor:pointer;font-weight:650;margin-bottom:8px}
+.studio-ocr-details[open] .studio-recognized-text{display:block;min-height:90px;max-height:55vh;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);white-space:pre-wrap;line-height:1.65;outline-color:var(--accent);-webkit-user-select:text;user-select:text}
+.studio-recognized-text:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 20%,transparent)}
+.studio-format-panel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-basis:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.studio-format-panel[hidden]{display:none!important}
+.studio-format-panel p{flex-basis:100%;margin:0;font-weight:600}
+.studio-format-panel button{min-width:110px;min-height:44px}
+@media(max-width:600px){.studio-format-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.studio-format-panel p{grid-column:1/-1}.studio-format-panel button{width:100%;min-width:0}}
