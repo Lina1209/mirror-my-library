@@ -1,3 +1,38 @@
+function decodeFB2Bytes(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
+  const prefix = new TextDecoder("ascii").decode(bytes.subarray(0, 256));
+  const declared = prefix.match(/encoding\s*=\s*["']([^"']+)["']/i)?.[1];
+  const candidates = [declared, "utf-8", "windows-1251", "koi8-r", "utf-16le", "utf-16be"].filter(Boolean);
+  const tried = new Set();
+  for (const label of candidates) {
+    const normalized = label.toLowerCase();
+    if (tried.has(normalized)) continue;
+    tried.add(normalized);
+    try {
+      const text = new TextDecoder(label, { fatal: true }).decode(bytes);
+      if (text.includes("<FictionBook") || /<\s*FictionBook\b/i.test(text)) return text;
+      if (!text.includes("\uFFFD")) return text;
+    } catch {}
+  }
+  try { return new TextDecoder("windows-1251").decode(bytes); }
+  catch { return new TextDecoder().decode(bytes); }
+}
+
+export function decodeFB2(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
+  let text = decodeFB2Bytes(bytes);
+  try {
+    xmlParser(text);
+    return text;
+  } catch (firstError) {
+    const fallback = new TextDecoder("windows-1251").decode(bytes);
+    if (fallback !== text) {
+      try { xmlParser(fallback); return fallback; } catch {}
+    }
+    throw firstError;
+  }
+}
+
 function xmlParser(raw) {
   const doc = new DOMParser().parseFromString(raw, "application/xml");
   if (doc.querySelector("parsererror") || !doc.documentElement) {
@@ -57,7 +92,7 @@ export async function extractMetadata(file, ext) {
 
   try {
     if (ext === "fb2") {
-      const xml = xmlParser(await file.text());
+      const xml = xmlParser(decodeFB2(await file.arrayBuffer()));
       const author = ["first-name", "middle-name", "last-name"]
         .map(name => textOf(xml, name)).filter(Boolean).join(" ");
       const coverRef = byLocalName(byLocalName(xml, "coverpage") || xml, "image");

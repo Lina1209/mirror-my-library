@@ -1,5 +1,5 @@
 import { put, getAll, getOne, remove } from "./db.js";
-import { extension, extractMetadata, safeHTML, fb2ToHTML } from "./parsers.js";
+import { extension, extractMetadata, safeHTML, fb2ToHTML, decodeFB2 } from "./parsers.js";
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -558,7 +558,7 @@ function renderFB2Page() {
 }
 
 async function openFB2(book, progress) {
-  const html = fb2ToHTML(new TextDecoder("utf-8").decode(book.data));
+  const html = fb2ToHTML(decodeFB2(book.data));
   const staging = document.createElement("div");
   staging.innerHTML = html;
   const topSections = [...staging.children].filter(node => node.tagName.toLowerCase() === "section");
