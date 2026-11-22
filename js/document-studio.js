@@ -299,109 +299,62 @@ async function recognizePDF(file){
   pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
   try{
-  for(let n=1;n<=pdf.numPages;n++){
-    say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем страницу и восстанавливаем текстовые области…");
-    const page=await pdf.getPage(n);
-    const textContent=await page.getTextContent();
-    const textItems=textContent.items.filter(item=>typeof item.str==="string"&&item.str.trim());
-    const lines=[];
-    textItems.forEach(item=>{
-      const y=Number(item.transform?.[5]||0);
-      let line=lines.find(entry=>Math.abs(entry.y-y)<3);
-      if(!line){line={y,items:[]};lines.push(line);}
-      line.items.push(item);
-    });
-    lines.sort((x,y)=>y.y-x.y);
-    let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\s+/g," ").trim()).filter(Boolean).join("\n").trim();
-
-    const base=page.getViewport({scale:1});
-    const previewScale=Math.min(1.45,1800/Math.max(base.width,base.height));
-    const previewViewport=page.getViewport({scale:previewScale});
-    const canvas=document.createElement("canvas");
-    canvas.width=Math.ceil(previewViewport.width);canvas.height=Math.ceil(previewViewport.height);
-    const ctx=canvas.getContext("2d",{willReadFrequently:true});
-    await page.render({canvasContext:ctx,viewport:previewViewport}).promise;
-
-    let ocrLines=[];
-    let ocrViewport=null;
-    if(extracted.length<25){
-      say("Страница "+n+" из "+pdf.numPages+": распознаём текст и координаты строк…");
-      if(!worker)worker=await getOCRWorker();
-      const ocrCanvas=document.createElement("canvas");
-      const ocrScale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
-      ocrViewport=page.getViewport({scale:ocrScale});
-      ocrCanvas.width=Math.ceil(ocrViewport.width);ocrCanvas.height=Math.ceil(ocrViewport.height);
-      await page.render({canvasContext:ocrCanvas.getContext("2d",{willReadFrequently:true}),viewport:ocrViewport}).promise;
-      const recognized=await worker.recognize(ocrCanvas);
-      extracted=recognized.data.text||"";
-      ocrLines=(recognized.data.lines||[]).filter(line=>String(line.text||"").trim()&&line.bbox&&
-        [line.bbox.x0,line.bbox.y0,line.bbox.x1,line.bbox.y1].every(Number.isFinite));
-      ocrCanvas.width=ocrCanvas.height=0;
-    }
-
-    const pageBlock=document.createElement("div");
-    pageBlock.className="studio-source-page";
-    const heading=document.createElement("h2");heading.textContent="Страница "+n;
-
-    if(ocrLines.length){
-      // Первая реконструкция: закрываем распознанные строки на копии фона и размещаем редактируемый текст поверх по координатам OCR.
-      const layoutScale=Math.min(1,700/previewViewport.width);
-      const pageWidth=Math.round(previewViewport.width*layoutScale);
-      const pageHeight=Math.round(previewViewport.height*layoutScale);
-      const sx=previewViewport.width/Math.max(1,ocrViewport.width)*layoutScale;
-      const sy=previewViewport.height/Math.max(1,ocrViewport.height)*layoutScale;
-      ctx.fillStyle="#fff";
-      ocrLines.forEach(line=>{
-        const b=line.bbox;
-        const x=Math.max(0,b.x0*sx),y=Math.max(0,b.y0*sy);
-        const w=Math.max(1,(b.x1-b.x0)*sx),h=Math.max(1,(b.y1-b.y0)*sy);
-        const pad=Math.max(1,h*.08);
-        ctx.fillRect(Math.max(0,x-pad),Math.max(0,y-pad),Math.min(pageWidth/ layoutScale-x+pad,w+pad*2),h+pad*2);
+    for(let n=1;n<=pdf.numPages;n++){
+      say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем исходный вид и извлекаем текст…");
+      const page=await pdf.getPage(n);
+      const textContent=await page.getTextContent();
+      const textItems=textContent.items.filter(item=>typeof item.str==="string"&&item.str.trim());
+      const lines=[];
+      textItems.forEach(item=>{
+        const y=Number(item.transform?.[5]||0);
+        let line=lines.find(entry=>Math.abs(entry.y-y)<3);
+        if(!line){line={y,items:[]};lines.push(line);}
+        line.items.push(item);
       });
+      lines.sort((x,y)=>y.y-x.y);
+      let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\s+/g," ").trim()).filter(Boolean).join("\n").trim();
+      const base=page.getViewport({scale:1});
+      const previewScale=Math.min(1.45,1800/Math.max(base.width,base.height));
+      const previewViewport=page.getViewport({scale:previewScale});
+      const canvas=document.createElement("canvas");
+      canvas.width=Math.ceil(previewViewport.width);canvas.height=Math.ceil(previewViewport.height);
+      await page.render({canvasContext:canvas.getContext("2d"),viewport:previewViewport}).promise;
+      if(extracted.length<25){
+        say("Страница "+n+" из "+pdf.numPages+": распознаём текст…");
+        if(!worker)worker=await getOCRWorker();
+        const ocrCanvas=document.createElement("canvas");
+        const ocrScale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
+        const ocrViewport=page.getViewport({scale:ocrScale});
+        ocrCanvas.width=Math.ceil(ocrViewport.width);ocrCanvas.height=Math.ceil(ocrViewport.height);
+        await page.render({canvasContext:ocrCanvas.getContext("2d",{willReadFrequently:true}),viewport:ocrViewport}).promise;
+        const recognized=await worker.recognize(ocrCanvas);
+        extracted=String(recognized.data.text||"").trim();
+        ocrCanvas.width=ocrCanvas.height=0;
+      }
+      const pageBlock=document.createElement("div");
+      pageBlock.className="studio-source-page studio-pdf-page";
+      pageBlock.dataset.pageWidth=String(Math.round(base.width));
+      pageBlock.dataset.pageHeight=String(Math.round(base.height));
+      pageBlock.style.cssText="position:relative;width:100%;max-width:700px;aspect-ratio:"+base.width+"/"+base.height+";margin:14px auto 22px;padding:0;overflow:hidden;background:#fff;box-sizing:border-box;border:1px solid #d8d2c7;";
       const pageImage=document.createElement("img");
       pageImage.className="studio-source-page-image";
-      pageImage.alt="Фон страницы "+n+" с очищенными областями текста";
-      pageImage.src=canvas.toDataURL("image/jpeg",0.94);
-      pageImage.style.cssText="position:absolute;left:0;top:0;width:100%;height:100%;margin:0;object-fit:fill;";
-      const layer=document.createElement("div");
-      layer.className="studio-reconstructed-text-layer";
-      layer.style.cssText="position:absolute;left:0;top:0;width:100%;height:100%;";
-      ocrLines.forEach(line=>{
-        const b=line.bbox;
-        const x=Math.max(0,b.x0*sx),y=Math.max(0,b.y0*sy);
-        const w=Math.max(2,(b.x1-b.x0)*sx),h=Math.max(3,(b.y1-b.y0)*sy);
-        const span=document.createElement("span");
-        span.className="studio-reconstructed-line";
-        span.contentEditable="true";
-        span.spellcheck=true;
-        span.textContent=String(line.text||"").trim();
-        span.style.cssText="position:absolute;left:"+x.toFixed(2)+"px;top:"+y.toFixed(2)+"px;width:"+w.toFixed(2)+"px;height:"+Math.max(h*1.2, h+1).toFixed(2)+"px;font-family:Georgia,serif;font-size:"+Math.max(7,Math.min(32,h*.82)).toFixed(2)+"px;line-height:1;white-space:pre;overflow:hidden;color:#202020;";
-        layer.append(span);
-      });
-      pageBlock.classList.add("studio-reconstructed-page");
-      pageBlock.dataset.pageWidth=String(pageWidth);
-      pageBlock.dataset.pageHeight=String(pageHeight);
-      pageBlock.style.cssText="position:relative;width:"+pageWidth+"px;height:"+pageHeight+"px;margin:18px auto 28px;padding:0;border:1px solid #ddd;overflow:hidden;background:#fff;box-sizing:border-box;";
-      pageBlock.append(pageImage,layer);
-      const note=document.createElement("p");
-      note.className="studio-source-caption";
-      note.textContent="Восстановленный макет: распознанные строки можно исправлять прямо на странице. Иллюстрации и фон сохранены; точность зависит от качества скана.";
-      editor.append(heading,pageBlock,note);
-    }else{
-      const pageImage=document.createElement("img");
-      pageImage.className="studio-source-page-image";
-      pageImage.alt="Оригинальный вид страницы "+n+" из PDF";
-      pageImage.src=canvas.toDataURL("image/jpeg",0.92);
-      const imageCaption=document.createElement("p");imageCaption.className="studio-source-caption";imageCaption.textContent="Оригинальный вид страницы";
-      const textCaption=document.createElement("p");textCaption.className="studio-source-caption";textCaption.textContent="Извлечённый текст — можно редактировать";
-      const textBlock=document.createElement("div");textBlock.className="studio-recognized-text";textBlock.contentEditable="true";
-      textBlock.textContent=extracted||"[Текст не распознан]";
-      pageBlock.append(heading,imageCaption,pageImage,textCaption,textBlock);
+      pageImage.alt="Страница "+n+" из исходного PDF";
+      pageImage.src=canvas.toDataURL("image/jpeg",0.96);
+      pageImage.style.cssText="display:block;width:100%;height:100%;max-width:none;max-height:none;margin:0;object-fit:contain;";
+      pageBlock.append(pageImage);
       editor.append(pageBlock);
+      const textDetails=document.createElement("details");
+      textDetails.className="studio-ocr-details";
+      const summary=document.createElement("summary");
+      summary.textContent="Распознанный текст страницы "+n+" — нажмите, чтобы открыть и исправить";
+      const textBlock=document.createElement("div");
+      textBlock.className="studio-recognized-text";
+      textBlock.contentEditable="true";textBlock.spellcheck=true;
+      textBlock.textContent=extracted||"[Текст на странице не распознан]";
+      textDetails.append(summary,textBlock);editor.append(textDetails);
+      canvas.width=canvas.height=0;
+      setProgress(n/pdf.numPages*100);
     }
-    canvas.width=canvas.height=0;
-    setProgress(n/pdf.numPages*100);
-  }
   }finally{if(worker)try{await worker.terminate();}catch{}}
 }
 function safeImportedStyle(value){
@@ -431,7 +384,7 @@ function safeImportedStyle(value){
 }
 function sanitizeImportedHTML(markup){
   const doc=new DOMParser().parseFromString(String(markup||""),"text/html");
-  const allowed=new Set(["P","DIV","SPAN","H1","H2","H3","H4","STRONG","B","EM","I","U","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","COLGROUP","COL","BR","BLOCKQUOTE","PRE","IMG"]);
+  const allowed=new Set(["P","DIV","SPAN","H1","H2","H3","H4","STRONG","B","EM","I","U","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","COLGROUP","COL","BR","BLOCKQUOTE","PRE","IMG","DETAILS","SUMMARY"]);
   doc.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,link,meta").forEach(n=>n.remove());
   doc.body.querySelectorAll("*").forEach(node=>{
     if(!allowed.has(node.tagName)){node.replaceWith(...node.childNodes);return;}
@@ -439,7 +392,7 @@ function sanitizeImportedHTML(markup){
     const style=safeImportedStyle(attrs.find(a=>a.name.toLowerCase()==="style")?.value);
     if(style)node.setAttribute("style",style);
     const classValue=attrs.find(a=>a.name.toLowerCase()==="class")?.value||"";
-    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-source-page-image","studio-source-caption","studio-recognized-text","studio-reconstructed-page","studio-reconstructed-text-layer","studio-reconstructed-line","studio-page-break","studio-data-table"]);
+    const safeClasses=new Set(["studio-docx-page-settings","studio-source-page","studio-pdf-page","studio-source-page-image","studio-source-caption","studio-ocr-details","studio-recognized-text","studio-reconstructed-page","studio-reconstructed-text-layer","studio-reconstructed-line","studio-page-break","studio-data-table"]);
     const keptClasses=classValue.split(/\s+/).filter(name=>safeClasses.has(name));
     if(keptClasses.length)node.className=keptClasses.join(" ");
     if(node.tagName==="IMG"){
@@ -749,7 +702,10 @@ function cleanEditorHTML(){
 }
 function documentHTML(){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>body{font:12pt/1.55 Georgia,serif;color:#222;max-width:850px;margin:40px auto;padding:0 24px}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-reconstructed-page{break-after:page;page-break-after:always;position:relative;overflow:hidden;margin:0 auto;padding:0;border:0;box-sizing:border-box}.studio-reconstructed-text-layer{position:absolute;left:0;top:0;width:100%;height:100%}.studio-reconstructed-line{display:block;position:absolute;overflow:hidden;white-space:pre}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{body{margin:15mm auto}.studio-page-break{border:0;margin:0}}</style></head><body><h1>'+escapeHTML(title)+'</h1>'+cleanEditorHTML()+'</body></html>';
+  const hasPDFPages=Boolean(editor.querySelector(".studio-pdf-page"));
+  const heading=hasPDFPages?"":"<h1>"+escapeHTML(title)+"</h1>";
+  const pageStyles=hasPDFPages?".studio-pdf-page{width:210mm;height:297mm;max-width:none;margin:0;padding:8mm;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;break-after:page;page-break-after:always;border:0;border-radius:0;background:#fff}.studio-pdf-page .studio-source-page-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;margin:0}.studio-ocr-details{display:none!important}":"html,body{width:auto}body{max-width:850px;margin:40px auto;padding:0 24px}";
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;max-width:none;background:#fff;color:#222}body{font:12pt/1.55 Georgia,serif}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-reconstructed-page{break-after:page;page-break-after:always;position:relative;overflow:hidden;margin:0 auto;padding:0;border:0;box-sizing:border-box}.studio-reconstructed-text-layer{position:absolute;left:0;top:0;width:100%;height:100%}.studio-reconstructed-line{display:block;position:absolute;overflow:hidden;white-space:pre}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{.studio-ocr-details{display:none!important}}'+pageStyles+'</style></head><body>'+heading+cleanEditorHTML()+'</body></html>';
 }
 function download(blob,name){
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
@@ -818,13 +774,14 @@ async function exportPDFDownload(){
     if(!doc?.body)throw new Error("Не удалось прочитать подготовленную редакцию.");
     if(doc.fonts?.ready)await doc.fonts.ready;
     await Promise.all([...doc.images].map(img=>img.decode?img.decode().catch(()=>{}):Promise.resolve()));
+    const pdfPageDocument=Boolean(editor.querySelector(".studio-pdf-page"));
     const blob=await window.html2pdf().set({
-      margin:[12,12,14,12],
+      margin:pdfPageDocument?0:[12,12,14,12],
       filename:safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.pdf",
       image:{type:"jpeg",quality:0.96},
       html2canvas:{scale:1.5,useCORS:true,backgroundColor:"#ffffff",logging:false},
       jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
-      pagebreak:{mode:["css","legacy"]}
+      pagebreak:{mode:["css","legacy"],avoid:".studio-pdf-page"}
     }).from(doc.body).outputPdf("blob");
     if(!(blob instanceof Blob)||blob.size<100)throw new Error("PDF получился пустым. Попробуйте экспортировать ещё раз.");
     const base=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document");
