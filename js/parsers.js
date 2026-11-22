@@ -92,7 +92,7 @@ export async function extractMetadata(file, ext) {
 
   try {
     if (ext === "fb2") {
-      const xml = xmlParser(await file.text());
+      const xml = xmlParser(decodeFB2(await file.arrayBuffer()));
       const author = ["first-name", "middle-name", "last-name"]
         .map(name => textOf(xml, name)).filter(Boolean).join(" ");
       const coverRef = byLocalName(byLocalName(xml, "coverpage") || xml, "image");
