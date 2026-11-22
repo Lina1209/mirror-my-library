@@ -763,6 +763,8 @@ async function loadSavedRevision(){
     const htmlText=typeof book.data==="string"?book.data:new TextDecoder().decode(book.data instanceof ArrayBuffer?book.data:new Uint8Array(book.data));
     const parsed=new DOMParser().parseFromString(htmlText,"text/html");
     editor.innerHTML=sanitizeImportedHTML(parsed.body?.innerHTML||htmlText);
+    editor.querySelectorAll(".studio-ocr-details").forEach(node=>{node.open=true;});
+    editor.querySelectorAll(".studio-recognized-text").forEach(node=>{node.contentEditable="true";node.spellcheck=true;});
     state.sourceName=book.sourceName||book.revisionOf||book.name||"document.html";
     state.sourceType=book.type||"text/html";state.format=book.format||"docx";
     setStudioReady(true);
