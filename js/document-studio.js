@@ -1,4 +1,5 @@
 import { put, getAll } from "./db.js";
+import { decodeFB2, decodeText, fb2ToHTML } from "./parsers.js";
 
 const $ = id => document.getElementById(id);
 const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null };
@@ -40,6 +41,8 @@ async function previewRenderPDF(){
 }
 async function openStudioPreview(file){
   if(!file)return;
+  if(studioPreview.objectUrl){URL.revokeObjectURL(studioPreview.objectUrl);studioPreview.objectUrl=null;}
+  if(studioPreview.pdf){try{await studioPreview.pdf.destroy();}catch(error){console.warn("PDF preview cleanup:",error);}}
   studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
   previewDownload.disabled=false;
   if (!state.sourceBookId) $("studioSaveSourceToLibrary").disabled = false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
@@ -54,10 +57,43 @@ async function openStudioPreview(file){
       previewSurface.replaceChildren(img);return;
     }
     if(["txt","md","csv","log","json","xml"].includes(ext)||type.startsWith("text/")){
-      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=await file.text();previewSurface.replaceChildren(pre);previewSay(file.name+" · текстовый просмотр");return;
+      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=decodeText(await file.arrayBuffer());previewSurface.replaceChildren(pre);previewSay(file.name+" · текстовый просмотр");return;
+    }
+    if(ext==="fb2"||file.name.toLowerCase().endsWith(".fb2.zip")){
+      let bytes=await file.arrayBuffer();
+      if(file.name.toLowerCase().endsWith(".fb2.zip")){
+        await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение FB2.ZIP");
+        const archive=await window.JSZip.loadAsync(bytes);
+        const entry=Object.values(archive.files).find(item=>!item.dir&&/\.fb2$/i.test(item.name));
+        if(!entry)throw new Error("В ZIP-архиве не найден файл FB2.");
+        bytes=await entry.async("arraybuffer");
+      }
+      previewSurface.innerHTML=sanitizeImportedHTML(fb2ToHTML(decodeFB2(bytes)));
+      previewSay(file.name+" · предпросмотр FB2");return;
+    }
+    if(ext==="epub"){
+      await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение EPUB");
+      const archive=await window.JSZip.loadAsync(await file.arrayBuffer()),container=archive.file("META-INF/container.xml");
+      if(!container)throw new Error("В EPUB отсутствует META-INF/container.xml.");
+      const containerDoc=new DOMParser().parseFromString(await container.async("string"),"application/xml");
+      const opfPath=containerDoc.getElementsByTagNameNS("*","rootfile")[0]?.getAttribute("full-path");
+      const opfFile=opfPath&&archive.file(opfPath);if(!opfFile)throw new Error("В EPUB не найден OPF.");
+      const opf=new DOMParser().parseFromString(await opfFile.async("string"),"application/xml");
+      const base=opfPath.includes("/")?opfPath.slice(0,opfPath.lastIndexOf("/") + 1):"";
+      const manifest=new Map([...opf.getElementsByTagNameNS("*","item")].map(item=>[item.getAttribute("id"),item.getAttribute("href")]));
+      const content=document.createElement("div");let count=0;
+      for(const item of [...opf.getElementsByTagNameNS("*","itemref")]){
+        const href=manifest.get(item.getAttribute("idref"));if(!href)continue;
+        const path=(base+decodeURIComponent(href.split("#")[0])).split("/").reduce((parts,part)=>{if(!part||part===".")return parts;if(part==="..")parts.pop();else parts.push(part);return parts;},[]).join("/");
+        const chapter=archive.file(path);if(!chapter)continue;
+        const doc=new DOMParser().parseFromString(await chapter.async("string"),"text/html");
+        const section=document.createElement("section");section.innerHTML=sanitizeImportedHTML((doc.querySelector("body")||doc.documentElement).innerHTML);content.append(section);count++;
+      }
+      if(!count)throw new Error("В EPUB не найдены главы.");
+      previewSurface.replaceChildren(content);previewSay(file.name+" · предпросмотр EPUB · глав: "+count);return;
     }
     if(["html","htm"].includes(ext)){
-      const content=sanitizeImportedHTML(await file.text()),frame=document.createElement("iframe");frame.className="studio-preview-frame";frame.setAttribute("sandbox","");frame.srcdoc=content;previewSurface.replaceChildren(frame);previewSay(file.name+" · безопасный HTML-предпросмотр");return;
+      const content=sanitizeImportedHTML(decodeText(await file.arrayBuffer())),frame=document.createElement("iframe");frame.className="studio-preview-frame";frame.setAttribute("sandbox","");frame.srcdoc=content;previewSurface.replaceChildren(frame);previewSay(file.name+" · безопасный HTML-предпросмотр");return;
     }
     if(ext==="docx"){
       await loadScript(()=>!!window.mammoth,"https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js","DOCX viewer");
@@ -257,10 +293,12 @@ async function getOCRWorker(){
 }
 function appendPageHeading(number){const h=document.createElement("h2");h.textContent="Страница "+number;editor.append(h);}
 async function recognizeImage(file,worker){const result=await worker.recognize(file);return result.data.text||"";}
-async function recognizePDF(file,worker){
+async function recognizePDF(file){
+  let worker=null;
   const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+  try{
   for(let n=1;n<=pdf.numPages;n++){
     say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем страницу и восстанавливаем текстовые области…");
     const page=await pdf.getPage(n);
@@ -285,11 +323,13 @@ async function recognizePDF(file,worker){
     await page.render({canvasContext:ctx,viewport:previewViewport}).promise;
 
     let ocrLines=[];
+    let ocrViewport=null;
     if(extracted.length<25){
       say("Страница "+n+" из "+pdf.numPages+": распознаём текст и координаты строк…");
+      if(!worker)worker=await getOCRWorker();
       const ocrCanvas=document.createElement("canvas");
       const ocrScale=Math.max(1,Math.min(2,2600/Math.max(base.width,base.height)));
-      const ocrViewport=page.getViewport({scale:ocrScale});
+      ocrViewport=page.getViewport({scale:ocrScale});
       ocrCanvas.width=Math.ceil(ocrViewport.width);ocrCanvas.height=Math.ceil(ocrViewport.height);
       await page.render({canvasContext:ocrCanvas.getContext("2d",{willReadFrequently:true}),viewport:ocrViewport}).promise;
       const recognized=await worker.recognize(ocrCanvas);
@@ -362,6 +402,7 @@ async function recognizePDF(file,worker){
     canvas.width=canvas.height=0;
     setProgress(n/pdf.numPages*100);
   }
+  }finally{if(worker)try{await worker.terminate();}catch{}}
 }
 function safeImportedStyle(value){
   const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout","position","left","top","z-index","white-space","overflow","object-fit"]);
@@ -641,12 +682,60 @@ async function recognize(){
     if(ext==="docx"){say("Импорт DOCX…");await importDOCX(file);}
     else if(["xlsx","xls","csv"].includes(ext)){say("Импорт таблицы…");await importSpreadsheet(file);}
     else if(file.type==="application/pdf"||ext==="pdf"){
-      worker=await getOCRWorker();await recognizePDF(file,worker);state.format="text";say("Обработка PDF завершена. Проверьте и отредактируйте распознанный текст.");
-    }else if(file.type.startsWith("image/")){
+      await recognizePDF(file);state.format="text";say("Обработка PDF завершена. Проверьте и отредактируйте извлечённый/распознанный текст.");
+    }else if(file.type.startsWith("image/")||["png","jpg","jpeg","webp","gif","bmp","tif","tiff"].includes(ext)){
       worker=await getOCRWorker();say("Распознавание изображения…");
       const text=await recognizeImage(file,worker),p=document.createElement("p");p.textContent=text;editor.append(p);
       state.format="text";setProgress(100);say("Распознавание завершено. Проверьте и отредактируйте текст.");
-    }else throw new Error("Этот формат пока не поддерживается. Выберите PDF, изображение, DOCX, XLSX, XLS или CSV.");
+    }else if(["txt","md","log","json","xml"].includes(ext)||file.type.startsWith("text/")){
+      const text=decodeText(await file.arrayBuffer());
+      const pre=document.createElement("pre");pre.textContent=text;editor.replaceChildren(pre);
+      state.format="text";setProgress(100);say("Текстовый документ открыт. Можно редактировать, сохранять и экспортировать.");
+    }else if(["html","htm"].includes(ext)){
+      editor.innerHTML=sanitizeImportedHTML(decodeText(await file.arrayBuffer()));
+      state.format="html";setProgress(100);say("HTML-документ открыт с безопасной очисткой разметки. Можно редактировать и экспортировать.");
+    }else if(["fb2","zip"].includes(ext)){
+      let bytes=await file.arrayBuffer();
+      if(ext==="zip"||file.name.toLowerCase().endsWith(".fb2.zip")){
+        await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение FB2.ZIP");
+        const zip=await window.JSZip.loadAsync(bytes);
+        const entry=Object.values(zip.files).find(item=>!item.dir&&/\.fb2$/i.test(item.name));
+        if(!entry)throw new Error("В ZIP-архиве не найден файл FB2.");
+        bytes=await entry.async("arraybuffer");
+      }
+      editor.innerHTML=sanitizeImportedHTML(fb2ToHTML(decodeFB2(bytes)));
+      state.format="fb2";setProgress(100);say("Книга FB2 открыта. Текст и встроенные иллюстрации доступны для редактирования.");
+    }else if(ext==="epub"){
+      await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение EPUB");
+      const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
+      const container=zip.file("META-INF/container.xml");
+      if(!container)throw new Error("В EPUB отсутствует META-INF/container.xml.");
+      const containerDoc=new DOMParser().parseFromString(await container.async("string"),"application/xml");
+      const opfPath=containerDoc.getElementsByTagNameNS("*","rootfile")[0]?.getAttribute("full-path");
+      const opfFile=opfPath&&zip.file(opfPath);
+      if(!opfFile)throw new Error("В EPUB не найден файл содержания OPF.");
+      const opf=new DOMParser().parseFromString(await opfFile.async("string"),"application/xml");
+      const base=opfPath.includes("/")?opfPath.slice(0,opfPath.lastIndexOf("/")+1):"";
+      const manifest=new Map([...opf.getElementsByTagNameNS("*","item")].map(item=>[item.getAttribute("id"),item.getAttribute("href")]));
+      const spine=[...opf.getElementsByTagNameNS("*","itemref")];
+      const fragment=document.createDocumentFragment();let chapters=0;
+      for(const item of spine){
+        const href=manifest.get(item.getAttribute("idref"));if(!href)continue;
+        const path=(base+decodeURIComponent(href.split("#")[0])).split("/").reduce((parts,part)=>{if(!part||part===".")return parts;if(part==="..")parts.pop();else parts.push(part);return parts;},[]).join("/");
+        const chapter=zip.file(path);if(!chapter)continue;
+        const doc=new DOMParser().parseFromString(await chapter.async("string"),"text/html");
+        const content=doc.querySelector("body")||doc.documentElement;
+        const section=document.createElement("section");section.className="studio-epub-chapter";
+        section.innerHTML=sanitizeImportedHTML(content.innerHTML);fragment.append(section);chapters++;
+      }
+      if(!chapters)throw new Error("В EPUB не найдены главы для чтения.");
+      editor.replaceChildren(fragment);state.format="epub";setProgress(100);say("EPUB открыт: глав загружено "+chapters+". Иллюстрации по внешним путям и сложная вёрстка могут отображаться упрощённо.");
+    }else if(ext==="rtf"){
+      const raw=decodeText(await file.arrayBuffer());
+      const plain=raw.replace(/\\'[0-9a-f]{2}/gi,"").replace(/\\[a-z]+-?\d* ?/gi,"").replace(/[{}]/g,"").replace(/\\\\/g,"\\");
+      const pre=document.createElement("pre");pre.textContent=plain;editor.replaceChildren(pre);
+      state.format="text";setProgress(100);say("RTF открыт в упрощённом текстовом виде. Исходное форматирование можно сохранить в оригинале.");
+    }else throw new Error("Формат не поддерживается для редактирования в Студии. Оригинал можно просмотреть и скачать в первом блоке.");
   }catch(error){console.error(error);say("Ошибка: "+error.message);}
   finally{if(worker)try{await worker.terminate();}catch{}setBusy(false);}
 }

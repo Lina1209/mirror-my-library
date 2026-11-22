@@ -73,7 +73,7 @@
       <div class="studio-preview-empty">Предпросмотр появится здесь</div>
     </div>
   </div>
-  <div class="studio-card"><h2>2. OCR и извлечение текста (дополнительный инструмент)</h2><p>Поддерживаются PDF и изображения для OCR, а также DOCX, XLSX, XLS и CSV для импорта и редактирования. Для DOCX сохраняются поддерживаемые абзацы и выделения; для Excel можно редактировать все непустые листы книги.</p><input id="studioFile" type="file" accept=".pdf,.docx,.xlsx,.xls,.csv,image/*">
+  <div class="studio-card"><h2>2. OCR и извлечение текста (дополнительный инструмент)</h2><p>Поддерживаются PDF и изображения для OCR; DOCX, XLSX, XLS и CSV для документов и таблиц; FB2, EPUB, TXT, HTML и RTF для открытия и редактирования текста.</p><input id="studioFile" type="file" accept=".pdf,.docx,.xlsx,.xls,.csv,.fb2,.fb2.zip,.epub,.txt,.md,.log,.json,.xml,.html,.htm,.rtf,image/*">
     <label class="studio-label">Язык распознавания <select id="studioLanguage"><option value="rus+eng">Русский + английский</option><option value="rus">Русский</option><option value="eng">Английский</option><option value="deu">Немецкий</option><option value="fra">Французский</option><option value="spa">Испанский</option><option value="ita">Итальянский</option><option value="por">Португальский</option><option value="tur">Турецкий</option><option value="kaz">Казахский</option></select></label>
     <button id="studioRecognize" class="primary">Открыть документ / распознать</button><progress id="studioProgress" max="100" value="0"></progress><p id="studioStatus" role="status">Выберите документ или скан.</p></div>
   <div class="studio-card"><div class="studio-editor-head"><h2>3. Редактор документа</h2><div class="studio-tools">
