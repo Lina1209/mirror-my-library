@@ -41,6 +41,8 @@ async function previewRenderPDF(){
 }
 async function openStudioPreview(file){
   if(!file)return;
+  if(studioPreview.objectUrl){URL.revokeObjectURL(studioPreview.objectUrl);studioPreview.objectUrl=null;}
+  if(studioPreview.pdf){try{await studioPreview.pdf.destroy();}catch(error){console.warn("PDF preview cleanup:",error);}}
   studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
   previewDownload.disabled=false;
   if (!state.sourceBookId) $("studioSaveSourceToLibrary").disabled = false;previewControls.hidden=true;previewSurface.replaceChildren();previewSay("Открываем "+file.name+"…");
@@ -55,10 +57,43 @@ async function openStudioPreview(file){
       previewSurface.replaceChildren(img);return;
     }
     if(["txt","md","csv","log","json","xml"].includes(ext)||type.startsWith("text/")){
-      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=await file.text();previewSurface.replaceChildren(pre);previewSay(file.name+" · текстовый просмотр");return;
+      const pre=document.createElement("pre");pre.className="studio-preview-text";pre.textContent=decodeText(await file.arrayBuffer());previewSurface.replaceChildren(pre);previewSay(file.name+" · текстовый просмотр");return;
+    }
+    if(ext==="fb2"||file.name.toLowerCase().endsWith(".fb2.zip")){
+      let bytes=await file.arrayBuffer();
+      if(file.name.toLowerCase().endsWith(".fb2.zip")){
+        await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение FB2.ZIP");
+        const archive=await window.JSZip.loadAsync(bytes);
+        const entry=Object.values(archive.files).find(item=>!item.dir&&/\.fb2$/i.test(item.name));
+        if(!entry)throw new Error("В ZIP-архиве не найден файл FB2.");
+        bytes=await entry.async("arraybuffer");
+      }
+      previewSurface.innerHTML=sanitizeImportedHTML(fb2ToHTML(decodeFB2(bytes)));
+      previewSay(file.name+" · предпросмотр FB2");return;
+    }
+    if(ext==="epub"){
+      await loadScript(()=>!!window.JSZip,"https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","чтение EPUB");
+      const archive=await window.JSZip.loadAsync(await file.arrayBuffer()),container=archive.file("META-INF/container.xml");
+      if(!container)throw new Error("В EPUB отсутствует META-INF/container.xml.");
+      const containerDoc=new DOMParser().parseFromString(await container.async("string"),"application/xml");
+      const opfPath=containerDoc.getElementsByTagNameNS("*","rootfile")[0]?.getAttribute("full-path");
+      const opfFile=opfPath&&archive.file(opfPath);if(!opfFile)throw new Error("В EPUB не найден OPF.");
+      const opf=new DOMParser().parseFromString(await opfFile.async("string"),"application/xml");
+      const base=opfPath.includes("/")?opfPath.slice(0,opfPath.lastIndexOf("/") + 1):"";
+      const manifest=new Map([...opf.getElementsByTagNameNS("*","item")].map(item=>[item.getAttribute("id"),item.getAttribute("href")]));
+      const content=document.createElement("div");let count=0;
+      for(const item of [...opf.getElementsByTagNameNS("*","itemref")]){
+        const href=manifest.get(item.getAttribute("idref"));if(!href)continue;
+        const path=(base+decodeURIComponent(href.split("#")[0])).split("/").reduce((parts,part)=>{if(!part||part===".")return parts;if(part==="..")parts.pop();else parts.push(part);return parts;},[]).join("/");
+        const chapter=archive.file(path);if(!chapter)continue;
+        const doc=new DOMParser().parseFromString(await chapter.async("string"),"text/html");
+        const section=document.createElement("section");section.innerHTML=sanitizeImportedHTML((doc.querySelector("body")||doc.documentElement).innerHTML);content.append(section);count++;
+      }
+      if(!count)throw new Error("В EPUB не найдены главы.");
+      previewSurface.replaceChildren(content);previewSay(file.name+" · предпросмотр EPUB · глав: "+count);return;
     }
     if(["html","htm"].includes(ext)){
-      const content=sanitizeImportedHTML(await file.text()),frame=document.createElement("iframe");frame.className="studio-preview-frame";frame.setAttribute("sandbox","");frame.srcdoc=content;previewSurface.replaceChildren(frame);previewSay(file.name+" · безопасный HTML-предпросмотр");return;
+      const content=sanitizeImportedHTML(decodeText(await file.arrayBuffer())),frame=document.createElement("iframe");frame.className="studio-preview-frame";frame.setAttribute("sandbox","");frame.srcdoc=content;previewSurface.replaceChildren(frame);previewSay(file.name+" · безопасный HTML-предпросмотр");return;
     }
     if(ext==="docx"){
       await loadScript(()=>!!window.mammoth,"https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js","DOCX viewer");
