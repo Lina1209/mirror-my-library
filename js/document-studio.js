@@ -2,7 +2,7 @@ import { put, getAll } from "./db.js";
 import { decodeFB2, decodeText, fb2ToHTML } from "./parsers.js";
 
 const $ = id => document.getElementById(id);
-const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null, documentReady:false };
+const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null, documentReady:false, pendingFile:null };
 const editor = $("studioEditor");
 const status = $("studioStatus");
 const progress = $("studioProgress");
@@ -167,11 +167,19 @@ window.openMirrorBookInStudio = async function(file, bookId = null) {
   }
   state.sourceName = file.name;
   state.sourceType = file.type || "";
+  state.pendingFile = file;
+  const editorInput = $("studioFile");
+  if(editorInput){
+    try{const transfer=new DataTransfer();transfer.items.add(file);editorInput.files=transfer.files;}
+    catch(error){console.warn("Не удалось заполнить поле редактирования; используется прямая передача файла:",error);}
+  }
+  setStudioReady(false);
   state.sourceBookId = bookId;
   $("studioSaveSourceToLibrary").disabled = Boolean(bookId);
   $("studioSaveSourceToLibrary").textContent = bookId ? "✓ Уже в библиотеке" : "＋ В библиотеку";
   $("openStudioBtn")?.click();
   await openStudioPreview(file);
+  await recognize();
   previewDownload.disabled = false;
   previewSay(file.name + " · файл из библиотеки. Оригинал сохранён в библиотеке; повторный импорт не выполняется.");
   $("studioPreviewMeta")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
@@ -641,7 +649,7 @@ async function importSpreadsheet(file){
   setProgress(100);
 }
 async function recognize(){
-  const file=fileInput.files?.[0];if(!file){say("Сначала выберите документ.");return;}
+  const file=state.pendingFile||fileInput.files?.[0];if(!file){say("Сначала выберите документ.");return;}
   setStudioReady(false);setBusy(true);setProgress(0);editor.replaceChildren();state.sourceName=file.name;state.sourceType=file.type;
   const ext=extOf(file);let worker;
   try{
@@ -1197,4 +1205,4 @@ $("studioRedo").addEventListener("click",()=>insertCommand("redo"));
 $("studioClear").addEventListener("click",()=>{if(confirm("Очистить рабочее поле?"))editor.replaceChildren();});
 $("openStudioBtn").addEventListener("click",()=>{$("libraryView").classList.add("hidden");$("readerView").classList.add("hidden");$("documentStudioView").classList.remove("hidden");document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));$("openStudioBtn").classList.add("active");refreshSavedRevisions().catch(e=>say("Не удалось загрузить список редакций: "+e.message));});
 $("studioBack").addEventListener("click",()=>{$("documentStudioView").classList.add("hidden");$("libraryView").classList.remove("hidden");$("openStudioBtn").classList.remove("active");});
-fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0];if(f){setStudioReady(false);state.sourceName=f.name;say("Выбран файл: "+f.name+". Нажмите «Открыть документ / распознать».");}});
+fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0];if(f){state.pendingFile=f;setStudioReady(false);state.sourceName=f.name;say("Выбран файл: "+f.name+". Нажмите «Открыть документ / распознать».");}});
