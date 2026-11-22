@@ -312,7 +312,7 @@ async function recognizePDF(file){
         line.items.push(item);
       });
       lines.sort((x,y)=>y.y-x.y);
-      let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\\s+/g," ").trim()).filter(Boolean).join("\\n").trim();
+      let extracted=lines.map(line=>line.items.sort((x,y)=>(x.transform?.[4]||0)-(y.transform?.[4]||0)).map(item=>item.str).join(" ").replace(/\s+/g," ").trim()).filter(Boolean).join("\n").trim();
       const base=page.getViewport({scale:1});
       const previewScale=Math.min(1.45,1800/Math.max(base.width,base.height));
       const previewViewport=page.getViewport({scale:previewScale});
@@ -701,7 +701,7 @@ function cleanEditorHTML(){
   return copy.innerHTML;
 }
 function documentHTML(){
-  const title=state.sourceName.replace(/\\.[^.]+$/,"")||"Новый документ";
+  const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
   const hasPDFPages=Boolean(editor.querySelector(".studio-pdf-page"));
   const heading=hasPDFPages?"":"<h1>"+escapeHTML(title)+"</h1>";
   const pageStyles=hasPDFPages?".studio-pdf-page{width:210mm;height:297mm;max-width:none;margin:0;padding:8mm;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;break-after:page;page-break-after:always;border:0;border-radius:0;background:#fff}.studio-pdf-page .studio-source-page-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;margin:0}.studio-ocr-details{display:none!important}":"";
