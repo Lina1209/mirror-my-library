@@ -1,5 +1,5 @@
 import { put, getAll, getOne, remove } from "./db.js";
-import { extension, extractMetadata, safeHTML, fb2ToHTML, decodeFB2 } from "./parsers.js";
+import { extension, extractMetadata, safeHTML, fb2ToHTML, decodeFB2, decodeText } from "./parsers.js";
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -7,7 +7,7 @@ const state = {
   libraryLayout: localStorage.getItem("mirror-library-layout") === "cards" ? "cards" : "list",
   epub: null, rendition: null, epubText: "", pdf: null, pdfPage: 1, pdfZoom: 1,
   fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
-  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null
+  pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null, imageObjectUrl: null
 };
 const filters = {
   all: "Все книги", reading: "Читаю сейчас",
@@ -570,14 +570,14 @@ async function openFB2(book, progress) {
 }
 
 async function openTXT(book, progress) {
-  const text = new TextDecoder("utf-8").decode(book.data);
+  const text = decodeText(book.data);
   state.currentTextPages = splitText(text);
   state.textPage = Math.max(0, Math.min(Number(progress?.page) || 0, state.currentTextPages.length - 1));
   renderTextPage();
 }
 
 async function openHTML(book, progress) {
-  $("readerContent").innerHTML = safeHTML(new TextDecoder("utf-8").decode(book.data));
+  $("readerContent").innerHTML = safeHTML(decodeText(book.data));
   state.currentTextPages = [];
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
@@ -1344,13 +1344,15 @@ async function extractPDFText() {
 
 async function openImageBook(book){
   const blob=new Blob([book.data],{type:book.type||"image/"+book.ext});
+  if(state.imageObjectUrl)URL.revokeObjectURL(state.imageObjectUrl);
   const url=URL.createObjectURL(blob);
+  state.imageObjectUrl=url;
   const image=document.createElement("img");
   image.className="reader-image";
   image.alt=book.name||book.title;
   image.src=url;
   image.onload=()=>setReaderStatus(image.naturalWidth+" × "+image.naturalHeight);
-  image.onerror=()=>{URL.revokeObjectURL(url);setReaderStatus("Не удалось открыть изображение");};
+  image.onerror=()=>{if(state.imageObjectUrl===url)state.imageObjectUrl=null;URL.revokeObjectURL(url);setReaderStatus("Не удалось открыть изображение");};
   $("readerContent").replaceChildren(image);
   $("prevBtn").disabled=true;$("nextBtn").disabled=true;
   setReaderStatus("Изображение");
@@ -1358,6 +1360,10 @@ async function openImageBook(book){
 }
 async function openBook(bookId) {
   if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
+  if(state.rendition){try{state.rendition.destroy();}catch(error){console.warn("EPUB rendition cleanup:",error);}}
+  if(state.epub){try{state.epub.destroy?.();}catch(error){console.warn("EPUB book cleanup:",error);}}
+  if(state.pdf){try{await state.pdf.destroy();}catch(error){console.warn("PDF document cleanup:",error);}}
+  if(state.imageObjectUrl){URL.revokeObjectURL(state.imageObjectUrl);state.imageObjectUrl=null;}
   const book = await getOne("books", bookId);
   if (!book) return;
   state.activeBook = book;
@@ -1394,6 +1400,7 @@ async function openBook(bookId) {
     else if (book.ext === "docx") await openDOCX(book);
     else if (["xlsx", "xls"].includes(book.ext)) await openSpreadsheet(book);
     else if (["html", "htm"].includes(book.ext)) await openHTML(book, progress);
+    else if (["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(book.ext)) await openImageBook(book);
     else throw new Error("Этот формат пока не поддерживается.");
   } catch (error) {
     console.error(error);
@@ -1434,6 +1441,8 @@ $("backBtn").onclick = async () => {
   if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
   state.rendition?.destroy?.();
   state.epub?.destroy?.();
+  if(state.pdf){try{await state.pdf.destroy();}catch(error){console.warn("PDF document cleanup:",error);}}
+  if(state.imageObjectUrl){URL.revokeObjectURL(state.imageObjectUrl);state.imageObjectUrl=null;}
   state.rendition = null;
   state.epub = null;
   state.pdf = null;
@@ -1852,16 +1861,13 @@ if ("speechSynthesis" in window) {
 
 async function getCurrentSpeechText() {
   if (!state.activeBook) return "";
-  const book=state.activeBook,decode=()=>new TextDecoder("utf-8").decode(book.data||new ArrayBuffer(0));
+  const book=state.activeBook,decode=()=>decodeText(book.data||new ArrayBuffer(0));
   // Read the whole book/document instead of only the visible page.
-  if(["txt","fb2"].includes(book.ext)){
-    const raw=decode();
-    if(book.ext==="fb2"){
-      const parsed=new DOMParser().parseFromString(raw,"application/xml");
-      return parsed.querySelector("body")?.textContent?.replace(/\s+/g," ").trim()||"";
-    }
-    return raw.replace(/\s+/g," ").trim();
+  if(book.ext==="fb2"){
+    const parsed=new DOMParser().parseFromString(decodeFB2(book.data||new ArrayBuffer(0)),"application/xml");
+    return parsed.querySelector("body")?.textContent?.replace(/\s+/g," ").trim()||"";
   }
+  if(book.ext==="txt") return decode().replace(/\s+/g," ").trim();
   if(["html","htm"].includes(book.ext)){
     const doc=new DOMParser().parseFromString(decode(),"text/html");
     doc.querySelectorAll("script,style,iframe,svg").forEach(node=>node.remove());
