@@ -2,7 +2,7 @@ import { put, getAll } from "./db.js";
 import { decodeFB2, decodeText, fb2ToHTML } from "./parsers.js";
 
 const $ = id => document.getElementById(id);
-const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null };
+const state = { sourceName:"", sourceType:"", busy:false, format:"text", sourceBookId:null, documentReady:false };
 const editor = $("studioEditor");
 const status = $("studioStatus");
 const progress = $("studioProgress");
@@ -279,7 +279,18 @@ function say(message){ status.textContent=message; }
 function escapeHTML(value){ return String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function safeName(value){ return (value||"document").replace(/[^a-z0-9а-яё_-]+/gi,"-").replace(/^-|-$/g,"")||"document"; }
 function setBusy(value){ state.busy=value; $("studioRecognize").disabled=value; $("studioFile").disabled=value; }
+function setStudioReady(value){
+  state.documentReady=Boolean(value);
+  editor.contentEditable="true";
+  $("studioSave").disabled=!state.documentReady;
+  $("studioExportToggle").disabled=!state.documentReady;
+  $("studioPrintPDF").disabled=!state.documentReady;
+  const xlsxButton=document.querySelector('[data-export-format="xlsx"]');
+  if(xlsxButton)xlsxButton.hidden=!editor.querySelector("table");
+  if(!state.documentReady){$("studioFormatPanel").hidden=true;$("studioExportToggle").setAttribute("aria-expanded","false");}
+}
 function setProgress(value){ progress.value=Math.max(0,Math.min(100,value)); }
+setStudioReady(false);
 function extOf(file){ return (file.name.split(".").pop()||"").toLowerCase(); }
 
 async function loadScript(test,src,label){
@@ -345,11 +356,13 @@ async function recognizePDF(file){
       editor.append(pageBlock);
       const textDetails=document.createElement("details");
       textDetails.className="studio-ocr-details";
+      textDetails.open=true;
       const summary=document.createElement("summary");
       summary.textContent="Распознанный текст страницы "+n+" — нажмите, чтобы открыть и исправить";
       const textBlock=document.createElement("div");
       textBlock.className="studio-recognized-text";
-      textBlock.contentEditable="true";textBlock.spellcheck=true;
+      textBlock.contentEditable="true";textBlock.spellcheck=true;textBlock.tabIndex=0;
+      textBlock.setAttribute("role","textbox");textBlock.setAttribute("aria-multiline","true");
       textBlock.textContent=extracted||"[Текст на странице не распознан]";
       textDetails.append(summary,textBlock);editor.append(textDetails);
       canvas.width=canvas.height=0;
@@ -629,7 +642,7 @@ async function importSpreadsheet(file){
 }
 async function recognize(){
   const file=fileInput.files?.[0];if(!file){say("Сначала выберите документ.");return;}
-  setBusy(true);setProgress(0);editor.replaceChildren();state.sourceName=file.name;state.sourceType=file.type;
+  setStudioReady(false);setBusy(true);setProgress(0);editor.replaceChildren();state.sourceName=file.name;state.sourceType=file.type;
   const ext=extOf(file);let worker;
   try{
     if(ext==="docx"){say("Импорт DOCX…");await importDOCX(file);}
@@ -689,26 +702,42 @@ async function recognize(){
       const pre=document.createElement("pre");pre.textContent=plain;editor.replaceChildren(pre);
       state.format="text";setProgress(100);say("RTF открыт в упрощённом текстовом виде. Исходное форматирование можно сохранить в оригинале.");
     }else throw new Error("Формат не поддерживается для редактирования в Студии. Оригинал можно просмотреть и скачать в первом блоке.");
+    setStudioReady(true);
+    editor.focus({preventScroll:true});
+    $("studioEditor").scrollIntoView({behavior:"smooth",block:"center"});
+    say("Документ готов к редактированию. Изменения можно сохранить в библиотеку или скачать в выбранном формате.");
   }catch(error){console.error(error);say("Ошибка: "+error.message);}
   finally{if(worker)try{await worker.terminate();}catch{}setBusy(false);}
 }
-function cleanEditorHTML(){
+function cleanEditorHTML({includeOCRText=true}={}){
   const copy=editor.cloneNode(true);
+  if(!includeOCRText)copy.querySelectorAll(".studio-ocr-details").forEach(node=>node.remove());
   copy.querySelectorAll("script,iframe,object,embed,form,button,input,textarea,select").forEach(node=>node.remove());
   copy.querySelectorAll("*").forEach(node=>[...node.attributes].forEach(attr=>{
     if(/^on/i.test(attr.name)||((attr.name==="href"||attr.name==="src")&&/^\s*javascript:/i.test(attr.value)))node.removeAttribute(attr.name);
   }));
   return copy.innerHTML;
 }
-function documentHTML(){
+function documentHTML({includeOCRText=true}={}){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
   const hasPDFPages=Boolean(editor.querySelector(".studio-pdf-page"));
   const heading=hasPDFPages?"":"<h1>"+escapeHTML(title)+"</h1>";
-  const pageStyles=hasPDFPages?".studio-pdf-page{width:210mm;height:297mm;max-width:none;margin:0;padding:8mm;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;break-after:page;page-break-after:always;border:0;border-radius:0;background:#fff}.studio-pdf-page .studio-source-page-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;margin:0}.studio-ocr-details{display:none!important}":"html,body{width:auto}body{max-width:850px;margin:40px auto;padding:0 24px}";
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;max-width:none;background:#fff;color:#222}body{font:12pt/1.55 Georgia,serif}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-reconstructed-page{break-after:page;page-break-after:always;position:relative;overflow:hidden;margin:0 auto;padding:0;border:0;box-sizing:border-box}.studio-reconstructed-text-layer{position:absolute;left:0;top:0;width:100%;height:100%}.studio-reconstructed-line{display:block;position:absolute;overflow:hidden;white-space:pre}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{.studio-ocr-details{display:none!important}}'+pageStyles+'</style></head><body>'+heading+cleanEditorHTML()+'</body></html>';
+  const pageStyles=hasPDFPages?".studio-pdf-page{width:210mm;height:297mm;max-width:none;margin:0;padding:8mm;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;break-after:page;page-break-after:always;border:0;border-radius:0;background:#fff}.studio-pdf-page .studio-source-page-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;margin:0}":"html,body{width:auto}body{max-width:850px;margin:40px auto;padding:0 24px}";
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;max-width:none;background:#fff;color:#222}body{font:12pt/1.55 Georgia,serif}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-reconstructed-page{break-after:page;page-break-after:always;position:relative;overflow:hidden;margin:0 auto;padding:0;border:0;box-sizing:border-box}.studio-reconstructed-text-layer{position:absolute;left:0;top:0;width:100%;height:100%}.studio-reconstructed-line{display:block;position:absolute;overflow:hidden;white-space:pre}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{.studio-ocr-details{display:none!important}}'+pageStyles+'</style></head><body>'+heading+cleanEditorHTML({includeOCRText})+'</body></html>';
 }
 function download(blob,name){
-  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+  if(!(blob instanceof Blob)||blob.size===0)throw new Error("Файл пустой — скачивание отменено.");
+  const url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=name;a.rel="noopener";a.style.display="none";
+  document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+function getStudioPlainText(){
+  const recognized=[...editor.querySelectorAll(".studio-recognized-text")];
+  if(recognized.length)return recognized.map(node=>(node.innerText||node.textContent||"").trim()).filter(Boolean).join("\n\n");
+  const copy=editor.cloneNode(true);
+  copy.querySelectorAll(".studio-ocr-details summary").forEach(node=>node.remove());
+  return (copy.innerText||copy.textContent||"").trim();
 }
 async function refreshSavedRevisions(selectedId=""){
   const select=$("studioSavedRevision");if(!select)return;
@@ -728,11 +757,13 @@ async function loadSavedRevision(){
     editor.innerHTML=sanitizeImportedHTML(parsed.body?.innerHTML||htmlText);
     state.sourceName=book.sourceName||book.revisionOf||book.name||"document.html";
     state.sourceType=book.type||"text/html";state.format=book.format||"docx";
+    setStudioReady(true);
     setProgress(100);
     say("Сохранённая редакция открыта. Таблицы и поддерживаемые параметры оформления восстановлены. Можно продолжить редактирование или экспортировать DOCX.");
   }catch(error){console.error(error);say("Не удалось открыть редакцию: "+error.message);}
 }
 async function saveToLibrary(){
+  if(!state.documentReady){say("Сначала откройте документ и дождитесь завершения распознавания.");return;}
   const html=documentHTML(),base=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document"),name=base+"-редакция.html";
   const id=crypto.randomUUID?.()||String(Date.now());
   await put("books",{id,name,title:(state.sourceName.replace(/\.[^.]+$/,"")||"Документ")+" — редакция",author:"",ext:"html",type:"text/html",data:new TextEncoder().encode(html).buffer,addedAt:Date.now(),favorite:false,sourceName:state.sourceName,revisionOf:state.sourceName,format:state.format,revisionSchema:2});
@@ -741,65 +772,91 @@ async function saveToLibrary(){
   download(new Blob([html],{type:"text/html;charset=utf-8"}),name);
 }
 function printPDF(){
-  const w=window.open("about:blank","_blank");
-  if(!w){say("Браузер заблокировал окно печати. Разрешите всплывающие окна для ©Mirror и повторите попытку.");return;}
-  const html=documentHTML();let started=false;
-  const runPrint=async()=>{
-    if(started)return;started=true;
-    try{
-      const images=[...w.document.images];
-      await Promise.all(images.map(image=>image.decode?image.decode().catch(()=>{}):new Promise(resolve=>{if(image.complete)resolve();else{image.onload=resolve;image.onerror=resolve;}})));
-      if(w.document.fonts?.ready)await w.document.fonts.ready;
-      w.focus();setTimeout(()=>{try{w.print();}catch(error){say("Не удалось открыть печать: "+error.message);}},250);
-    }catch(error){say("Не удалось подготовить документ к печати: "+error.message);}
+  if(!state.documentReady){say("Сначала откройте документ и дождитесь завершения обработки.");return;}
+  const html=documentHTML({includeOCRText:false});
+  let w=window.open("about:blank","_blank");
+  const printInWindow=target=>{
+    let started=false;
+    const runPrint=async()=>{
+      if(started)return;started=true;
+      try{
+        await Promise.all([...target.document.images].map(image=>image.decode?image.decode().catch(()=>{}):Promise.resolve()));
+        if(target.document.fonts?.ready)await target.document.fonts.ready;
+        target.focus();setTimeout(()=>{try{target.print();}catch(error){say("Не удалось открыть печать: "+error.message);}},250);
+      }catch(error){say("Не удалось подготовить документ к печати: "+error.message);}
+    };
+    target.addEventListener("load",runPrint,{once:true});
+    target.document.open();target.document.write(html);target.document.close();
+    setTimeout(()=>{if(!started)runPrint();},1200);
   };
-  w.addEventListener("load",runPrint,{once:true});
-  w.document.open();w.document.write(html);w.document.close();
-  setTimeout(()=>{if(!started)runPrint();},1200);
+  if(w){printInWindow(w);return;}
+  say("Окно печати заблокировано. Открываем встроенную печать…");
+  const frame=document.createElement("iframe");
+  frame.title="Печать документа";frame.style.cssText="position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:.01";
+  document.body.append(frame);
+  frame.onload=async()=>{
+    try{
+      await Promise.all([...frame.contentDocument.images].map(image=>image.decode?image.decode().catch(()=>{}):Promise.resolve()));
+      frame.contentWindow.focus();frame.contentWindow.print();
+    }catch(error){say("Не удалось открыть печать: "+error.message);}
+  };
+  frame.srcdoc=html;
 }
 async function exportPDFDownload(){
-  await loadScript(()=>!!window.html2pdf,"https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js","PDF export");
-  const frame=document.createElement("iframe");
-  frame.setAttribute("aria-hidden","true");
-  frame.style.cssText="position:fixed;left:-12000px;top:0;width:900px;height:1200px;border:0;opacity:0;pointer-events:none";
-  document.body.append(frame);
-  try{
-    const html=documentHTML();
-    await new Promise((resolve,reject)=>{
-      frame.onload=resolve;
-      frame.onerror=()=>reject(new Error("Не удалось подготовить страницу для PDF."));
-      frame.srcdoc=html;
-    });
-    const doc=frame.contentDocument;
-    if(!doc?.body)throw new Error("Не удалось прочитать подготовленную редакцию.");
-    if(doc.fonts?.ready)await doc.fonts.ready;
-    await Promise.all([...doc.images].map(img=>img.decode?img.decode().catch(()=>{}):Promise.resolve()));
-    const pdfPageDocument=Boolean(editor.querySelector(".studio-pdf-page"));
-    const blob=await window.html2pdf().set({
-      margin:pdfPageDocument?0:[12,12,14,12],
-      filename:safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.pdf",
-      image:{type:"jpeg",quality:0.96},
-      html2canvas:{scale:1.5,useCORS:true,backgroundColor:"#ffffff",logging:false},
-      jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
-      pagebreak:{mode:["css","legacy"],avoid:".studio-pdf-page"}
-    }).from(doc.body).outputPdf("blob");
-    if(!(blob instanceof Blob)||blob.size<100)throw new Error("PDF получился пустым. Попробуйте экспортировать ещё раз.");
-    const base=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document");
-    const name=base+"-редакция.pdf";
-    const id=crypto.randomUUID?.()||String(Date.now());
-    await put("books",{
-      id,name,title:(state.sourceName.replace(/\.[^.]+$/,"")||"Документ")+" — PDF-редакция",
-      author:"",ext:"pdf",type:"application/pdf",data:await blob.arrayBuffer(),
-      addedAt:Date.now(),favorite:false,sourceName:state.sourceName,
-      revisionOf:state.sourceName,revisionKind:"pdf-export",generatedFrom:"document-studio"
-    });
-    download(blob,name);
-    say("PDF-редакция создана, скачана и добавлена в библиотеку отдельной книгой. Исходный файл не изменён.");
-  }finally{
-    frame.remove();
+  if(!state.documentReady){say("Сначала откройте документ и дождитесь завершения обработки.");return;}
+  const base=safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document");
+  const scanPages=[...editor.querySelectorAll(".studio-pdf-page")];
+  let blob;
+  if(scanPages.length){
+    await loadScript(()=>!!window.jspdf?.jsPDF,"https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js","PDF export");
+    const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4",orientation:"portrait",compress:true});
+    for(let index=0;index<scanPages.length;index++){
+      const image=scanPages[index].querySelector(".studio-source-page-image");
+      if(!image)throw new Error("Не найдена исходная страница PDF №"+(index+1)+".");
+      if(image.decode)await image.decode();
+      if(!image.naturalWidth||!image.naturalHeight)throw new Error("Не удалось загрузить изображение страницы №"+(index+1)+".");
+      if(index)pdf.addPage("a4","portrait");
+      const scale=Math.min(210/image.naturalWidth,297/image.naturalHeight);
+      const width=image.naturalWidth*scale,height=image.naturalHeight*scale;
+      pdf.addImage(image.src,"JPEG",(210-width)/2,(297-height)/2,width,height,undefined,"FAST");
+    }
+    blob=pdf.output("blob");
+  }else{
+    await loadScript(()=>!!window.html2pdf,"https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js","PDF export");
+    const frame=document.createElement("iframe");
+    frame.setAttribute("aria-hidden","true");
+    frame.style.cssText="position:fixed;left:-12000px;top:0;width:900px;height:1200px;border:0;opacity:0;pointer-events:none";
+    document.body.append(frame);
+    try{
+      const html=documentHTML();
+      await new Promise((resolve,reject)=>{
+        frame.onload=resolve;frame.onerror=()=>reject(new Error("Не удалось подготовить страницу для PDF."));
+        frame.srcdoc=html;
+      });
+      const doc=frame.contentDocument;
+      if(!doc?.body)throw new Error("Не удалось прочитать подготовленную редакцию.");
+      if(doc.fonts?.ready)await doc.fonts.ready;
+      await Promise.all([...doc.images].map(img=>img.decode?img.decode().catch(()=>{}):Promise.resolve()));
+      blob=await window.html2pdf().set({
+        margin:[12,12,14,12],filename:base+"-редакция.pdf",
+        image:{type:"jpeg",quality:0.96},
+        html2canvas:{scale:1.5,useCORS:true,backgroundColor:"#ffffff",logging:false},
+        jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
+        pagebreak:{mode:["css","legacy"],avoid:".studio-pdf-page"}
+      }).from(doc.body).outputPdf("blob");
+    }finally{frame.remove();}
   }
+  if(!(blob instanceof Blob)||blob.size<1000)throw new Error("PDF получился пустым или повреждённым. Скачивание отменено.");
+  const name=base+"-редакция.pdf",id=crypto.randomUUID?.()||String(Date.now());
+  await put("books",{id,name,title:(state.sourceName.replace(/\.[^.]+$/,"")||"Документ")+" — PDF-редакция",author:"",ext:"pdf",type:"application/pdf",data:await blob.arrayBuffer(),addedAt:Date.now(),favorite:false,sourceName:state.sourceName,revisionOf:state.sourceName,revisionKind:"pdf-export",generatedFrom:"document-studio"});
+  download(blob,name);
+  say(scanPages.length?"PDF создан из "+scanPages.length+" исходных страниц, проверен на наличие содержимого и скачан.":"PDF-редакция создана и скачана. Оригинал не изменён.");
 }
-function exportText(){download(new Blob([editor.innerText||""],{type:"text/plain;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-текст.txt");}
+function exportText(){
+  const text=getStudioPlainText();
+  if(!text){say("В документе пока нет текста для TXT. Для сканированного PDF сначала выполните OCR.");return;}
+  download(new Blob([text],{type:"text/plain;charset=utf-8"}),safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-текст.txt");
+}
 let savedEditorRange=null;
 document.addEventListener("selectionchange",()=>{
   const selection=window.getSelection();
@@ -906,7 +963,7 @@ function htmlRuns(node,TextRun,ImageRun){
   walk(node);return runs.length?runs:[new TextRun({text:""})];
 }
 async function exportDOCX(){
-  if(!editor.innerText.trim()){say("Сначала загрузите или введите документ.");return;}
+  if(!getStudioPlainText()){say("Сначала загрузите документ и выполните распознавание текста.");return;}
   say("Подготовка DOCX…");
   const d=await import("https://cdn.jsdelivr.net/npm/docx@8.5.0/+esm");
   const {Document,Packer,Paragraph,TextRun,ImageRun,PageBreak,HeadingLevel,Table,TableRow,TableCell,WidthType,AlignmentType,ShadingType,BorderStyle,HeightRule}=d;
@@ -944,6 +1001,12 @@ async function exportDOCX(){
   function addBlock(node){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
     if(node.classList?.contains("studio-docx-page-settings"))return;
+    if(node.classList?.contains("studio-pdf-page"))return;
+    if(node.classList?.contains("studio-ocr-details")){
+      const recognized=node.querySelector(".studio-recognized-text");
+      if(recognized)children.push(new Paragraph({children:htmlRuns(recognized,TextRun,ImageRun)}));
+      return;
+    }
     if(node.dataset?.pageBreak==="true"){children.push(new Paragraph({children:[new PageBreak()]}));return;}
     if(node.tagName==="TABLE"){
       const colgroup=node.querySelector(":scope > colgroup");
@@ -1074,8 +1137,9 @@ async function exportXLSX(){
   window.XLSX.writeFile(workbook,safeName(state.sourceName.replace(/\.[^.]+$/,"")||"таблица")+"-редакция.xlsx");
   say("XLSX создан: "+tables.length+" листов. Сохранены данные, объединения ячеек и доступные размеры столбцов/строк. Формулы, стили и сложные настройки проверьте в Excel.");
 }
-async function exportSelectedFormat(){
-  const format=$("studioExportFormat").value;
+async function exportSelectedFormat(formatOverride){
+  if(!state.documentReady){say("Сначала откройте документ и дождитесь завершения обработки.");return;}
+  const format=formatOverride||"pdf";
   try{
     if(format==="pdf"){await exportPDFDownload();return;}
     if(format==="docx"){await exportDOCX();return;}
@@ -1092,7 +1156,17 @@ async function exportSelectedFormat(){
     say("Не удалось подготовить файл: "+error.message);
   }
 }
-$("studioExportSelected").addEventListener("click",exportSelectedFormat);
+const studioExportToggle=$("studioExportToggle"),studioFormatPanel=$("studioFormatPanel");
+studioExportToggle?.addEventListener("click",()=>{
+  if(!state.documentReady){say("Сначала откройте документ и дождитесь завершения обработки.");return;}
+  studioFormatPanel.hidden=!studioFormatPanel.hidden;
+  studioExportToggle.setAttribute("aria-expanded",String(!studioFormatPanel.hidden));
+});
+studioFormatPanel?.addEventListener("click",event=>{
+  const button=event.target.closest("[data-export-format]");if(!button)return;
+  studioFormatPanel.hidden=true;studioExportToggle.setAttribute("aria-expanded","false");
+  exportSelectedFormat(button.dataset.exportFormat);
+});
 $("studioRecognize").addEventListener("click",recognize);
 $("studioSave").addEventListener("click",()=>saveToLibrary().catch(e=>say("Не удалось сохранить: "+e.message)));
 $("studioLoadRevision").addEventListener("click",()=>loadSavedRevision());
@@ -1123,4 +1197,4 @@ $("studioRedo").addEventListener("click",()=>insertCommand("redo"));
 $("studioClear").addEventListener("click",()=>{if(confirm("Очистить рабочее поле?"))editor.replaceChildren();});
 $("openStudioBtn").addEventListener("click",()=>{$("libraryView").classList.add("hidden");$("readerView").classList.add("hidden");$("documentStudioView").classList.remove("hidden");document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));$("openStudioBtn").classList.add("active");refreshSavedRevisions().catch(e=>say("Не удалось загрузить список редакций: "+e.message));});
 $("studioBack").addEventListener("click",()=>{$("documentStudioView").classList.add("hidden");$("libraryView").classList.remove("hidden");$("openStudioBtn").classList.remove("active");});
-fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0];if(f){state.sourceName=f.name;say("Выбран файл: "+f.name+". Нажмите «Открыть документ / распознать».");}});
+fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0];if(f){setStudioReady(false);state.sourceName=f.name;say("Выбран файл: "+f.name+". Нажмите «Открыть документ / распознать».");}});

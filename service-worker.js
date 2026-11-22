@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "mirror-library-";
-const CACHE = "mirror-library-v58";
+const CACHE = "mirror-library-v59";
 const CORE = [
   "./",
   "./index.html",
