@@ -1070,3 +1070,34 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .reader-setting-buttons button{flex:1;min-height:42px}
 .reader-setting-controls{display:flex;flex-direction:column;gap:5px}
 .reader-fixed-mode .reader-toolbar{background:var(--panel)}
+
+
+/* Fixed A4-proportion reading viewport (210 × 297 mm), with scrolling inside the page. */
+.reader-fixed-mode:not(.hidden) #readerContent{
+  width:min(100vw, 780px, calc(100dvh * 210 / 297)) !important;
+  max-width:none !important;
+  height:min(100dvh, calc(100vw * 297 / 210), 1100px) !important;
+  max-height:100dvh !important;
+  min-height:0 !important;
+  flex:0 0 auto !important;
+  aspect-ratio:210 / 297;
+  margin:auto !important;
+  box-sizing:border-box;
+  overflow:auto !important;
+  padding:clamp(16px, 4vw, 36px) clamp(14px, 5vw, 48px) calc(24px + env(safe-area-inset-bottom)) !important;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.reader-fixed-mode:not(.hidden){justify-content:center;}
+.reader-fixed-mode #readerContent:has(.pdf-page-wrap){
+  width:100% !important;height:100% !important;max-width:100% !important;aspect-ratio:auto;
+  flex:1 1 auto !important;margin:0 !important;padding:0 4px 16px !important;
+}
+.reader-fixed-mode #readerContent:has(iframe){
+  width:100% !important;height:100% !important;max-width:100% !important;aspect-ratio:auto;
+  flex:1 1 auto !important;margin:0 !important;
+}
+.reader-fixed-mode #readerContent:has(.reader-image){
+  width:100% !important;height:100% !important;max-width:100% !important;aspect-ratio:auto;
+  flex:1 1 auto !important;margin:0 !important;
+}
