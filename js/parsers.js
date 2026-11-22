@@ -1,7 +1,7 @@
 function decodeFB2Bytes(input) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
   const prefix = new TextDecoder("ascii").decode(bytes.subarray(0, 256));
-  const declared = prefix.match(/encoding\\s*=\\s*["']([^"']+)["']/i)?.[1];
+  const declared = prefix.match(/encoding\s*=\s*["']([^"']+)["']/i)?.[1];
   const candidates = [declared, "utf-8", "windows-1251", "koi8-r", "utf-16le", "utf-16be"].filter(Boolean);
   const tried = new Set();
   for (const label of candidates) {
@@ -10,8 +10,8 @@ function decodeFB2Bytes(input) {
     tried.add(normalized);
     try {
       const text = new TextDecoder(label, { fatal: true }).decode(bytes);
-      if (text.includes("<FictionBook") || /<\\s*FictionBook\\b/i.test(text)) return text;
-      if (!text.includes("\\uFFFD")) return text;
+      if (text.includes("<FictionBook") || /<\s*FictionBook\b/i.test(text)) return text;
+      if (!text.includes("\uFFFD")) return text;
     } catch {}
   }
   try { return new TextDecoder("windows-1251").decode(bytes); }
