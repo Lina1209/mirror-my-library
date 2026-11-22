@@ -33,6 +33,30 @@ export function decodeFB2(input) {
   }
 }
 
+export function decodeText(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
+  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+    return new TextDecoder("utf-16le").decode(bytes.subarray(2));
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+    return new TextDecoder("utf-16be").decode(bytes.subarray(2));
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  }
+  const prefix = new TextDecoder("ascii").decode(bytes.subarray(0, 512));
+  const declared = prefix.match(/(?:charset\s*=\s*|encoding\s*=\s*)["']?([\w.-]+)/i)?.[1];
+  const candidates = [declared, "utf-8", "windows-1251", "koi8-r"].filter(Boolean);
+  const tried = new Set();
+  for (const label of candidates) {
+    const key = label.toLowerCase();
+    if (tried.has(key)) continue;
+    tried.add(key);
+    try { return new TextDecoder(label, { fatal: true }).decode(bytes); } catch {}
+  }
+  return new TextDecoder("windows-1251").decode(bytes);
+}
+
 function xmlParser(raw) {
   const doc = new DOMParser().parseFromString(raw, "application/xml");
   if (doc.querySelector("parsererror") || !doc.documentElement) {
