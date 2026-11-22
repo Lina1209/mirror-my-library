@@ -704,7 +704,7 @@ function documentHTML(){
   const title=state.sourceName.replace(/\.[^.]+$/,"")||"Новый документ";
   const hasPDFPages=Boolean(editor.querySelector(".studio-pdf-page"));
   const heading=hasPDFPages?"":"<h1>"+escapeHTML(title)+"</h1>";
-  const pageStyles=hasPDFPages?".studio-pdf-page{width:210mm;height:297mm;max-width:none;margin:0;padding:8mm;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;break-after:page;page-break-after:always;border:0;border-radius:0;background:#fff}.studio-pdf-page .studio-source-page-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;margin:0}.studio-ocr-details{display:none!important}":"";
+  const pageStyles=hasPDFPages?".studio-pdf-page{width:210mm;height:297mm;max-width:none;margin:0;padding:8mm;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;break-after:page;page-break-after:always;border:0;border-radius:0;background:#fff}.studio-pdf-page .studio-source-page-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;margin:0}.studio-ocr-details{display:none!important}":"html,body{width:auto}body{max-width:850px;margin:40px auto;padding:0 24px}";
   return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>'+escapeHTML(title)+'</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;max-width:none;background:#fff;color:#222}body{font:12pt/1.55 Georgia,serif}h1,h2{page-break-after:avoid}p{white-space:pre-wrap;margin:0 0 1em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px}img{max-width:100%;height:auto;object-fit:contain}.studio-source-page{break-inside:avoid;page-break-inside:avoid;margin:0 auto 24px;padding:14px;border:1px solid #ddd}.studio-reconstructed-page{break-after:page;page-break-after:always;position:relative;overflow:hidden;margin:0 auto;padding:0;border:0;box-sizing:border-box}.studio-reconstructed-text-layer{position:absolute;left:0;top:0;width:100%;height:100%}.studio-reconstructed-line{display:block;position:absolute;overflow:hidden;white-space:pre}.studio-source-page-image{display:block;width:auto;max-width:100%;height:auto;margin:8px auto 14px}.studio-source-caption{font-size:9pt;color:#666;margin:8px 0 4px}.studio-recognized-text{white-space:pre-wrap;line-height:1.55;padding:10px;border:1px dashed #bbb}.studio-page-break{break-before:page;page-break-before:always;border-top:1px dashed #aaa;margin:24px 0;height:1px;overflow:hidden;color:transparent}@media print{.studio-ocr-details{display:none!important}}'+pageStyles+'</style></head><body>'+heading+cleanEditorHTML()+'</body></html>';
 }
 function download(blob,name){
@@ -774,8 +774,9 @@ async function exportPDFDownload(){
     if(!doc?.body)throw new Error("Не удалось прочитать подготовленную редакцию.");
     if(doc.fonts?.ready)await doc.fonts.ready;
     await Promise.all([...doc.images].map(img=>img.decode?img.decode().catch(()=>{}):Promise.resolve()));
+    const pdfPageDocument=Boolean(editor.querySelector(".studio-pdf-page"));
     const blob=await window.html2pdf().set({
-      margin:0,
+      margin:pdfPageDocument?0:[12,12,14,12],
       filename:safeName(state.sourceName.replace(/\.[^.]+$/,"")||"document")+"-редакция.pdf",
       image:{type:"jpeg",quality:0.96},
       html2canvas:{scale:1.5,useCORS:true,backgroundColor:"#ffffff",logging:false},
