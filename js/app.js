@@ -5,7 +5,7 @@ const $ = id => document.getElementById(id);
 const state = {
   books: [], filter: "all", activeBook: null,
   libraryLayout: localStorage.getItem("mirror-library-layout") === "cards" ? "cards" : "list",
-  epub: null, rendition: null, epubText: "", pdf: null, pdfPage: 1, pdfZoom: 1,
+  epub: null, rendition: null, epubText: "", pdf: null, pdfPage: 1, pdfZoom: 1, pdfRenderTask: null, pdfRenderVersion: 0,
   fontSize: Math.max(13, Math.min(30, Number(localStorage.getItem("mirror-font-size")) || 18)), currentTextPages: [], textPage: 0,
   pdfAnnotations: {}, pdfOverlay: null, pdfPageCanvas: null, pdfImageObjects: {}, pdfTextObjects: {}, selectedPDFTextObjectId: null, pdfEditTool: "view", pdfUndo: {}, pdfExportUrl: null, detailDownloadUrl: null, imageObjectUrl: null
 };
@@ -395,8 +395,8 @@ async function ensureScript(test, src, label) {
 
 async function createPDFCoverThumbnail(file) {
   try {
-    const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+    const pdfjs = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs";
     const pdfDocument = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
     try {
       const page = await pdfDocument.getPage(1);
@@ -706,32 +706,49 @@ async function openPDF(book, progress) {
   const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-  const pdfBytes = book.data instanceof Uint8Array ? book.data : new Uint8Array(book.data);
-  state.pdf = await pdfjs.getDocument({ data: pdfBytes, isEvalSupported: false }).promise;
+  const pdfBytes = book.data instanceof Uint8Array ? book.data.slice() : new Uint8Array(book.data).slice();
+  state.pdf = await pdfjs.getDocument({ data: pdfBytes, isEvalSupported: false, useWorkerFetch: false }).promise;
   state.pdfPage = Math.max(1, Math.min(Number(progress?.page) || 1, state.pdf.numPages));
   await renderPDFPage();
 }
 
 async function renderPDFPage() {
   if (!state.pdf) return;
+  const renderVersion = ++state.pdfRenderVersion;
+  if (state.pdfRenderTask) {
+    try { state.pdfRenderTask.cancel(); } catch {}
+    state.pdfRenderTask = null;
+  }
   const page = await state.pdf.getPage(state.pdfPage);
+  if (renderVersion !== state.pdfRenderVersion || !state.pdf) return;
   const base = page.getViewport({ scale: 1 });
   const readerContent = $("readerContent");
   const availableWidth = Math.max(220, Math.min(760, readerContent.clientWidth - 32));
   const scale = Math.min(1.5, availableWidth / base.width) * Math.max(0.65, Math.min(3, state.pdfZoom || 1));
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: false });
+  if (!context) throw new Error("Браузер не смог создать Canvas для отображения PDF.");
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.floor(viewport.width * pixelRatio);
   canvas.height = Math.floor(viewport.height * pixelRatio);
   canvas.style.width = `${Math.floor(viewport.width)}px`;
   canvas.style.height = `${Math.floor(viewport.height)}px`;
-  await page.render({
+  const renderTask = page.render({
     canvasContext: context,
     viewport,
-    transform: pixelRatio === 1 ? null : [pixelRatio, 0, 0, pixelRatio, 0, 0]
-  }).promise;
+    transform: pixelRatio === 1 ? null : [pixelRatio, 0, 0, pixelRatio, 0, 0],
+    intent: "display"
+  });
+  state.pdfRenderTask = renderTask;
+  try { await renderTask.promise; }
+  catch (error) {
+    if (error?.name === "RenderingCancelledException" || renderVersion !== state.pdfRenderVersion) return;
+    throw error;
+  } finally {
+    if (state.pdfRenderTask === renderTask) state.pdfRenderTask = null;
+  }
+  if (renderVersion !== state.pdfRenderVersion || !state.pdf) return;
   const wrapper = document.createElement("div");
   wrapper.className = "pdf-page-wrap";
   wrapper.style.width = Math.floor(viewport.width) + "px";
@@ -1363,7 +1380,7 @@ async function openBook(bookId) {
   if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
   if(state.rendition){try{state.rendition.destroy();}catch(error){console.warn("EPUB rendition cleanup:",error);}}
   if(state.epub){try{state.epub.destroy?.();}catch(error){console.warn("EPUB book cleanup:",error);}}
-  if(state.pdf){try{await state.pdf.destroy();}catch(error){console.warn("PDF document cleanup:",error);}}
+  if(state.pdf){state.pdfRenderVersion++;if(state.pdfRenderTask){try{state.pdfRenderTask.cancel();}catch{}state.pdfRenderTask=null;}try{await state.pdf.destroy();}catch(error){console.warn("PDF document cleanup:",error);}}
   if(state.imageObjectUrl){URL.revokeObjectURL(state.imageObjectUrl);state.imageObjectUrl=null;}
   const book = await getOne("books", bookId);
   if (!book) return;
