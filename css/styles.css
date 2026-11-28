@@ -1199,3 +1199,23 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
     padding:18px 14px calc(24px + env(safe-area-inset-bottom))!important;
   }
 }
+
+
+/* Persistent reader actions: upload from device and exit are always reachable. */
+.reader-fixed-mode .reader-direct-action,
+.reader-fixed-mode .reader-exit-action{
+  position:relative!important;display:grid!important;place-items:center!important;
+  width:40px!important;height:40px!important;flex:0 0 40px!important;
+  border:1px solid var(--line)!important;border-radius:12px!important;
+  background:var(--panel)!important;color:var(--ink)!important;
+  font-size:20px!important;opacity:1!important;pointer-events:auto!important;
+}
+.reader-fixed-mode .reader-exit-action{font-size:19px!important}
+.reader-fixed-mode .reader-toolbar{transform:none!important;opacity:1!important;pointer-events:auto!important}
+.reader-fixed-mode #readerContent .pdf-page-wrap{max-width:100%;box-sizing:border-box}
+.reader-fixed-mode #readerContent .pdf-page-wrap>canvas{display:block;max-width:100%;height:auto}
+@media(max-width:600px){
+  .reader-fixed-mode .reader-direct-action,.reader-fixed-mode .reader-exit-action{
+    width:36px!important;height:36px!important;flex-basis:36px!important;
+  }
+}
