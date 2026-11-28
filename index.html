@@ -119,6 +119,8 @@
   <div class="reader-book-title" id="readerBookTitle">Книга</div>
   <button id="readerThemeToggle" class="reader-top-action" type="button" aria-label="Сменить тему страницы" title="Светлая / тёмная тема">◐</button>
   <button id="readerSearchBtn" class="reader-top-action" type="button" aria-label="Поиск по книге" title="Поиск по тексту">⌕</button>
+  <button id="readerScaleDownBtn" class="reader-top-action reader-scale-btn" type="button" aria-label="Уменьшить текст или страницу" title="Уменьшить">A−</button>
+  <button id="readerScaleUpBtn" class="reader-top-action reader-scale-btn" type="button" aria-label="Увеличить текст или страницу" title="Увеличить">A＋</button>
   <div class="reader-menu-wrap">
     <button id="readerMenuBtn" class="reader-menu-btn" type="button" aria-label="Настройки читалки" aria-expanded="false" title="Настройки">⋯</button>
     <div id="readerSettingsMenu" class="reader-settings-menu" hidden>
@@ -145,7 +147,7 @@
 <button id="readerFontDownQuick" type="button" hidden>A−</button><button id="readerFontUpQuick" type="button" hidden>A＋</button>
 <button id="fullscreenBtn" type="button" hidden>⛶</button><button id="ttsPlayBtn" type="button" hidden>Читать</button><span id="ttsStatus" hidden aria-live="polite"></span>
 <div id="readerContent" class="reader-content" tabindex="0" aria-label="Текст книги">
-  <div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка ©Mirror</h2><p>Выберите книгу в библиотеке, чтобы начать чтение.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>
+  <div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка ©Mirror</h2><p>Выберите книгу в библиотеке, чтобы начать чтение.</p><div class="reader-empty-actions"><button id="readerChooseDeviceBtn" class="primary" type="button">＋ Загрузить с устройства</button><button id="readerChooseLibraryBtn" class="secondary" type="button">▦ Добавить из библиотеки</button></div></div>
 </div>
 <div class="reader-progress-panel">
   <div class="reader-progress-top"><span id="readerProgressText">Прогресс чтения</span><span id="readerProgressPercent">0%</span></div>
