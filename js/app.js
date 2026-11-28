@@ -728,7 +728,10 @@ async function renderPDFPage() {
   const base = page.getViewport({ scale: 1 });
   const readerContent = $("readerContent");
   const availableWidth = Math.max(220, Math.min(760, readerContent.clientWidth - 32));
-  const scale = Math.min(1.5, availableWidth / base.width) * Math.max(0.65, Math.min(3, state.pdfZoom || 1));
+  const availableHeight = Math.max(260, readerContent.clientHeight - 48);
+  // Start with the complete page fitted inside the visible reader viewport.
+  const fitScale = Math.min(availableWidth / base.width, availableHeight / base.height, 1.25);
+  const scale = fitScale * Math.max(0.65, Math.min(3, state.pdfZoom || 1));
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { alpha: false, willReadFrequently: false });

@@ -1219,3 +1219,118 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
     width:36px!important;height:36px!important;flex-basis:36px!important;
   }
 }
+
+
+/* Reader layout: keep it inside the app viewport instead of covering the whole screen. */
+.reader-view.reader-fixed-mode:not(.hidden){
+  position:relative!important;
+  inset:auto!important;
+  z-index:1!important;
+  width:100%!important;
+  height:min(78dvh,780px)!important;
+  min-height:360px!important;
+  max-height:calc(100dvh - 104px)!important;
+  margin:12px auto!important;
+  padding:0!important;
+  border:1px solid var(--line)!important;
+  border-radius:14px!important;
+  overflow:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+  background:var(--panel)!important;
+}
+.reader-fixed-mode .reader-toolbar{
+  position:relative!important;
+  inset:auto!important;
+  flex:0 0 auto!important;
+  min-height:54px!important;
+  flex-wrap:wrap!important;
+  transform:none!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  padding:8px 12px!important;
+}
+.reader-fixed-mode #readerContent,
+.reader-fixed-mode:not(.hidden) #readerContent,
+.reader-fixed-mode.book-mode #readerContent{
+  flex:1 1 0!important;
+  min-height:0!important;
+  height:0!important;
+  max-height:none!important;
+  width:min(100%,780px)!important;
+  max-width:780px!important;
+  margin:0 auto!important;
+  padding:clamp(12px,3vw,28px)!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+  box-sizing:border-box!important;
+}
+.reader-fixed-mode #readerContent:has(.pdf-page-wrap),
+.reader-fixed-mode #readerContent:has(iframe),
+.reader-fixed-mode #readerContent:has(.reader-image){
+  width:100%!important;
+  max-width:100%!important;
+  margin:0!important;
+  padding:8px!important;
+  overflow:auto!important;
+}
+.reader-fixed-mode .reader-direct-action,
+.reader-fixed-mode .reader-exit-action{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:5px!important;
+  width:auto!important;
+  min-width:40px!important;
+  height:40px!important;
+  flex:0 0 auto!important;
+  padding:0 12px!important;
+  white-space:nowrap!important;
+  font-size:14px!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+}
+.reader-fixed-mode .reader-empty-state{
+  max-width:520px!important;
+  margin:auto!important;
+  padding:22px 14px!important;
+}
+.reader-fixed-mode .pdf-page-wrap{
+  max-width:100%!important;
+  margin:0 auto!important;
+}
+.reader-fixed-mode .pdf-page-wrap>canvas:first-child{
+  display:block!important;
+  max-width:100%!important;
+  height:auto!important;
+}
+@media(max-width:600px){
+  .reader-view.reader-fixed-mode:not(.hidden){
+    width:100%!important;
+    height:calc(100dvh - 145px)!important;
+    min-height:340px!important;
+    max-height:calc(100dvh - 90px)!important;
+    margin:8px auto!important;
+    border-radius:10px!important;
+  }
+  .reader-fixed-mode .reader-toolbar{
+    gap:5px!important;
+    padding:6px 8px!important;
+  }
+  .reader-fixed-mode .reader-book-title{
+    flex:1 1 100%!important;
+    order:-1!important;
+    text-align:center!important;
+  }
+  .reader-fixed-mode .reader-direct-action{
+    min-width:0!important;
+    height:36px!important;
+    padding:0 9px!important;
+    font-size:12px!important;
+  }
+  .reader-fixed-mode .reader-exit-action{
+    width:36px!important;
+    height:36px!important;
+    padding:0!important;
+  }
+}
