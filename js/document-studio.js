@@ -52,6 +52,8 @@ async function previewRenderPDF(){
 }
 async function openStudioPreview(file){
   if(!file)return;
+  studioPreview.renderVersion=(studioPreview.renderVersion||0)+1;
+  if(studioPreview.renderTask){try{studioPreview.renderTask.cancel();}catch{}studioPreview.renderTask=null;}
   if(studioPreview.objectUrl){URL.revokeObjectURL(studioPreview.objectUrl);studioPreview.objectUrl=null;}
   if(studioPreview.pdf){try{await studioPreview.pdf.destroy();}catch(error){console.warn("PDF preview cleanup:",error);}}
   studioPreview.file=file;studioPreview.pdf=null;studioPreview.page=1;studioPreview.zoom=previewZoom.value;
@@ -325,9 +327,13 @@ function appendPageHeading(number){const h=document.createElement("h2");h.textCo
 async function recognizeImage(file,worker){const result=await worker.recognize(file);return result.data.text||"";}
 async function recognizePDF(file){
   let worker=null;
-  const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-  const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+  const pdfjs=await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs";
+  const pdf=await pdfjs.getDocument({
+    data:new Uint8Array(await file.arrayBuffer()).slice(),
+    isEvalSupported:false,
+    useWorkerFetch:false
+  }).promise;
   try{
     for(let n=1;n<=pdf.numPages;n++){
       say("Обработка PDF: страница "+n+" из "+pdf.numPages+" — сохраняем исходный вид и извлекаем текст…");
@@ -387,7 +393,10 @@ async function recognizePDF(file){
       canvas.width=canvas.height=0;
       setProgress(n/pdf.numPages*100);
     }
-  }finally{if(worker)try{await worker.terminate();}catch{}}
+  }finally{
+    if(worker)try{await worker.terminate();}catch(error){console.warn("OCR worker cleanup:",error);}
+    try{await pdf.destroy();}catch(error){console.warn("OCR PDF cleanup:",error);}
+  }
 }
 function safeImportedStyle(value){
   const allowed=new Set(["font-family","font-size","font-weight","font-style","text-decoration","text-align","text-indent","line-height","letter-spacing","color","background-color","margin-top","margin-right","margin-bottom","margin-left","width","height","min-height","vertical-align","border","border-top","border-right","border-bottom","border-left","border-color","border-width","border-style","padding","padding-top","padding-right","padding-bottom","padding-left","table-layout","position","left","top","z-index","white-space","overflow","object-fit"]);
