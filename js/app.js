@@ -706,7 +706,8 @@ async function openPDF(book, progress) {
   const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-  state.pdf = await pdfjs.getDocument({ data: book.data.slice(0) }).promise;
+  const pdfBytes = book.data instanceof Uint8Array ? book.data : new Uint8Array(book.data);
+  state.pdf = await pdfjs.getDocument({ data: pdfBytes, isEvalSupported: false }).promise;
   state.pdfPage = Math.max(1, Math.min(Number(progress?.page) || 1, state.pdf.numPages));
   await renderPDFPage();
 }
@@ -1789,6 +1790,8 @@ document.addEventListener("click", event => {
 document.addEventListener("keydown", event => {
   if(event.key === "Escape") { closeReaderMenu(); closeReaderActionsMenu(); }
 });
+$( "readerUploadBtn" ).addEventListener("click", () => { pendingReaderOpenAfterUpload = true; $("fileInput").click(); });
+$("readerExitBtn").addEventListener("click", () => $("backBtn").click());
 const readerActionsButton = $("readerActionsBtn");
 const readerActionsMenu = $("readerActionsMenu");
 function closeReaderActionsMenu() {
