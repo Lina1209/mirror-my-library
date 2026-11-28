@@ -21,21 +21,32 @@ function previewDownloadOriginal(){
   setTimeout(()=>URL.revokeObjectURL(url),30000);
 }
 async function previewLoadPDF(file){
-  const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-  studioPreview.pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+  const pdfjs=await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs";
+  studioPreview.pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()).slice(),useWorkerFetch:false}).promise;
   studioPreview.page=1;previewControls.hidden=false;await previewRenderPDF();
   previewSay("PDF · "+studioPreview.pdf.numPages+" страниц · оригинал отображается без OCR.");
 }
 async function previewRenderPDF(){
   if(!studioPreview.pdf)return;
-  const page=await studioPreview.pdf.getPage(studioPreview.page),base=page.getViewport({scale:1});
+  const renderVersion=(studioPreview.renderVersion=(studioPreview.renderVersion||0)+1);
+  if(studioPreview.renderTask){try{studioPreview.renderTask.cancel();}catch{}studioPreview.renderTask=null;}
+  const page=await studioPreview.pdf.getPage(studioPreview.page);
+  if(renderVersion!==studioPreview.renderVersion||!studioPreview.pdf)return;
+  const base=page.getViewport({scale:1});
   const surfaceW=Math.max(300,previewSurface.clientWidth-24);
   const zoom=studioPreview.zoom==="fit"?Math.min(1.6,surfaceW/base.width):Number(studioPreview.zoom);
   const viewport=page.getViewport({scale:zoom}),canvas=document.createElement("canvas"),ratio=Math.min(window.devicePixelRatio||1,2);
   canvas.width=Math.round(viewport.width*ratio);canvas.height=Math.round(viewport.height*ratio);
   canvas.style.width=Math.round(viewport.width)+"px";canvas.style.height=Math.round(viewport.height)+"px";
-  await page.render({canvasContext:canvas.getContext("2d"),viewport,transform:ratio===1?null:[ratio,0,0,ratio,0,0]}).promise;
+  const context=canvas.getContext("2d",{alpha:false});
+  if(!context)throw new Error("Браузер не смог создать Canvas для отображения PDF.");
+  const task=page.render({canvasContext:context,viewport,transform:ratio===1?null:[ratio,0,0,ratio,0,0],intent:"display"});
+  studioPreview.renderTask=task;
+  try{await task.promise;}
+  catch(error){if(error?.name==="RenderingCancelledException"||renderVersion!==studioPreview.renderVersion)return;throw error;}
+  finally{if(studioPreview.renderTask===task)studioPreview.renderTask=null;}
+  if(renderVersion!==studioPreview.renderVersion||!studioPreview.pdf)return;
   previewSurface.replaceChildren(canvas);previewSetPageLabel();
   $("studioPreviewPrev").disabled=studioPreview.page<=1;$("studioPreviewNext").disabled=studioPreview.page>=studioPreview.pdf.numPages;
 }
