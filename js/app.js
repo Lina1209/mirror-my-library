@@ -703,11 +703,15 @@ async function openPDF(book, progress) {
   state.pdfTextObjects = book.pdfTextObjects || {};
   state.pdfUndo = {};
   state.pdfEditTool = "view";
-  const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+  const pdfjs = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs";
   const pdfBytes = book.data instanceof Uint8Array ? book.data.slice() : new Uint8Array(book.data).slice();
-  state.pdf = await pdfjs.getDocument({ data: pdfBytes, isEvalSupported: false, useWorkerFetch: false }).promise;
+  state.pdf = await pdfjs.getDocument({
+    data: pdfBytes,
+    isEvalSupported: false,
+    useWorkerFetch: false
+  }).promise;
   state.pdfPage = Math.max(1, Math.min(Number(progress?.page) || 1, state.pdf.numPages));
   await renderPDFPage();
 }
@@ -1457,6 +1461,8 @@ $("nextBtn").onclick = async () => {
 };
 $("backBtn").onclick = async () => {
   if(state.pdfExportUrl){URL.revokeObjectURL(state.pdfExportUrl);state.pdfExportUrl=null;}
+  state.pdfRenderVersion++;
+  if(state.pdfRenderTask){try{state.pdfRenderTask.cancel();}catch{}state.pdfRenderTask=null;}
   state.rendition?.destroy?.();
   state.epub?.destroy?.();
   if(state.pdf){try{await state.pdf.destroy();}catch(error){console.warn("PDF document cleanup:",error);}}
