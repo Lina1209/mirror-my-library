@@ -1128,3 +1128,94 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .studio-format-panel p{flex-basis:100%;margin:0;font-weight:600}
 .studio-format-panel button{min-width:110px;min-height:44px}
 @media(max-width:600px){.studio-format-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.studio-format-panel p{grid-column:1/-1}.studio-format-panel button{width:100%;min-width:0}}
+
+
+/* Reader accessibility: direct device import and visible text/page scaling */
+.reader-empty-actions{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+.reader-empty-actions .primary,.reader-empty-actions .secondary{min-height:44px}
+.reader-fixed-mode .reader-scale-btn{font-size:14px;font-weight:750}
+.reader-fixed-mode .reader-toolbar{gap:7px}
+.reader-fixed-mode .reader-content img,
+.reader-fixed-mode .reader-content canvas,
+.reader-fixed-mode .reader-content svg{max-width:100%;height:auto}
+@media(max-width:600px){
+  .reader-empty-actions{flex-direction:column;align-items:stretch;width:min(100%,300px);margin:18px auto 0}
+  .reader-empty-actions button{width:100%;min-height:46px}
+  .reader-fixed-mode .reader-toolbar{gap:5px;padding-left:8px;padding-right:8px}
+  .reader-fixed-mode .reader-top-action,.reader-fixed-mode .reader-menu-btn{width:36px;height:36px;flex-basis:36px}
+  .reader-fixed-mode .reader-scale-btn{font-size:12px}
+}
+
+
+/* Keep the reader controls visible and give the book the remaining viewport height. */
+.reader-view.reader-fixed-mode:not(.hidden){
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:flex-start!important;
+  overflow:hidden!important;
+}
+.reader-fixed-mode .reader-toolbar{
+  position:relative!important;
+  inset:auto!important;
+  flex:0 0 auto!important;
+  min-height:54px;
+  transform:none!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  flex-wrap:wrap;
+}
+.reader-fixed-mode #readerContent,
+.reader-fixed-mode:not(.hidden) #readerContent,
+.reader-fixed-mode.book-mode #readerContent{
+  width:min(100%,900px)!important;
+  max-width:900px!important;
+  height:auto!important;
+  max-height:none!important;
+  min-height:0!important;
+  flex:1 1 0!important;
+  aspect-ratio:auto!important;
+  margin:0 auto!important;
+  padding:clamp(16px,3vw,34px) clamp(14px,5vw,48px) 28px!important;
+  overflow:auto!important;
+}
+.reader-fixed-mode #readerContent:has(.pdf-page-wrap),
+.reader-fixed-mode #readerContent:has(iframe),
+.reader-fixed-mode #readerContent:has(.reader-image){
+  width:100%!important;
+  max-width:100%!important;
+  height:auto!important;
+  flex:1 1 0!important;
+  min-height:0!important;
+  margin:0!important;
+}
+.reader-fixed-mode .reader-empty-state{max-width:520px;padding:24px 16px}
+@media(max-width:600px){
+  .reader-fixed-mode .reader-toolbar{padding:6px 8px!important;gap:5px!important}
+  .reader-fixed-mode .reader-book-title{flex:1 1 100%;order:-1;text-align:center!important}
+  .reader-fixed-mode #readerContent,
+  .reader-fixed-mode:not(.hidden) #readerContent,
+  .reader-fixed-mode.book-mode #readerContent{
+    width:100%!important;max-width:100%!important;
+    padding:18px 14px calc(24px + env(safe-area-inset-bottom))!important;
+  }
+}
+
+
+/* Persistent reader actions: upload from device and exit are always reachable. */
+.reader-fixed-mode .reader-direct-action,
+.reader-fixed-mode .reader-exit-action{
+  position:relative!important;display:grid!important;place-items:center!important;
+  width:40px!important;height:40px!important;flex:0 0 40px!important;
+  border:1px solid var(--line)!important;border-radius:12px!important;
+  background:var(--panel)!important;color:var(--ink)!important;
+  font-size:20px!important;opacity:1!important;pointer-events:auto!important;
+}
+.reader-fixed-mode .reader-exit-action{font-size:19px!important}
+.reader-fixed-mode .reader-toolbar{transform:none!important;opacity:1!important;pointer-events:auto!important}
+.reader-fixed-mode #readerContent .pdf-page-wrap{max-width:100%;box-sizing:border-box}
+.reader-fixed-mode #readerContent .pdf-page-wrap>canvas{display:block;max-width:100%;height:auto}
+@media(max-width:600px){
+  .reader-fixed-mode .reader-direct-action,.reader-fixed-mode .reader-exit-action{
+    width:36px!important;height:36px!important;flex-basis:36px!important;
+  }
+}

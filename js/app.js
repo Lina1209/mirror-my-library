@@ -706,7 +706,8 @@ async function openPDF(book, progress) {
   const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-  state.pdf = await pdfjs.getDocument({ data: book.data.slice(0) }).promise;
+  const pdfBytes = book.data instanceof Uint8Array ? book.data : new Uint8Array(book.data);
+  state.pdf = await pdfjs.getDocument({ data: pdfBytes, isEvalSupported: false }).promise;
   state.pdfPage = Math.max(1, Math.min(Number(progress?.page) || 1, state.pdf.numPages));
   await renderPDFPage();
 }
@@ -1469,6 +1470,14 @@ $("fontDown").onclick = () => {
 };
 $("readerFontUpQuick").onclick = () => $("fontUp").click();
 $("readerFontDownQuick").onclick = () => $("fontDown").click();
+$("readerScaleDownBtn")?.addEventListener("click", async () => {
+  if (state.pdf) { state.pdfZoom = Math.max(0.65, Math.round(((state.pdfZoom || 1) - 0.15) * 100) / 100); await renderPDFPage(); }
+  else $("fontDown").click();
+});
+$("readerScaleUpBtn")?.addEventListener("click", async () => {
+  if (state.pdf) { state.pdfZoom = Math.min(3, Math.round(((state.pdfZoom || 1) + 0.15) * 100) / 100); await renderPDFPage(); }
+  else $("fontUp").click();
+});
 // Запоминаем выделение до нажатия кнопок меню: на мобильных браузерах
 // фокус панели иногда снимает визуальное выделение раньше обработчика click.
 let lastReaderSelection = "";
@@ -1676,12 +1685,13 @@ function showReaderHome() {
   $("readerView").classList.remove("hidden");
   $("readerBookTitle").textContent = "Читалка";
   $("readerMeta").textContent = "Ваша постоянная читалка";
-  $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>';
+  $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Загрузите книгу с устройства или откройте уже добавленную в библиотеку.</p><div class="reader-empty-actions"><button id="readerChooseDeviceBtn" class="primary" type="button">＋ Загрузить с устройства</button><button id="readerChooseLibraryBtn" class="secondary" type="button">▦ Добавить из библиотеки</button></div></div>';
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
   $("pageStatus").textContent = "Готово к чтению";
   updateReaderProgress(0, "Прогресс чтения");
-  $("readerChooseBookBtn").onclick = () => $("backBtn").click();
+  $("readerChooseDeviceBtn").onclick = () => { pendingReaderOpenAfterUpload = true; $("fileInput").click(); };
+  $("readerChooseLibraryBtn").onclick = () => openReaderLibraryPicker("reader", true);
 }
 $("readerNavBtn")?.addEventListener("click", () => {
   document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
@@ -1780,6 +1790,8 @@ document.addEventListener("click", event => {
 document.addEventListener("keydown", event => {
   if(event.key === "Escape") { closeReaderMenu(); closeReaderActionsMenu(); }
 });
+$( "readerUploadBtn" ).addEventListener("click", () => { pendingReaderOpenAfterUpload = true; $("fileInput").click(); });
+$("readerExitBtn").addEventListener("click", () => $("backBtn").click());
 const readerActionsButton = $("readerActionsBtn");
 const readerActionsMenu = $("readerActionsMenu");
 function closeReaderActionsMenu() {
