@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "mirror-library-";
-const CACHE = "mirror-library-v59";
+const CACHE = "mirror-library-v60";
 const CORE = [
   "./",
   "./index.html",
@@ -40,24 +40,22 @@ self.addEventListener("fetch", event => {
   const scope = new URL(self.registration.scope);
   if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
 
-  const cachePromise = caches.open(CACHE);
-  const updatePromise = cachePromise.then(async cache => {
-    const response = await fetch(request);
-    if (response && response.ok && response.type === "basic") {
-      await cache.put(request, response.clone());
-    }
-    return response;
-  });
-
-  // Keep the background refresh alive even when a cached response is returned.
-  event.waitUntil(updatePromise.then(() => undefined).catch(() => undefined));
-  event.respondWith(cachePromise.then(async cache => {
-    const cached = await cache.match(request);
-    if (cached) return cached;
+  // Prefer the deployed version immediately; use the local cache only when offline.
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
     try {
-      return await updatePromise;
+      const response = await fetch(request);
+      if (response && response.ok && response.type === "basic") {
+        try {
+          await cache.put(request, response.clone());
+        } catch (error) {
+          console.warn("Mirror cache update skipped:", error);
+        }
+      }
+      return response;
     } catch {
-      return Response.error();
+      const cached = await cache.match(request);
+      return cached || Response.error();
     }
-  }));
+  })());
 });
