@@ -1469,6 +1469,14 @@ $("fontDown").onclick = () => {
 };
 $("readerFontUpQuick").onclick = () => $("fontUp").click();
 $("readerFontDownQuick").onclick = () => $("fontDown").click();
+$("readerScaleDownBtn")?.addEventListener("click", async () => {
+  if (state.pdf) { state.pdfZoom = Math.max(0.65, Math.round(((state.pdfZoom || 1) - 0.15) * 100) / 100); await renderPDFPage(); }
+  else $("fontDown").click();
+});
+$("readerScaleUpBtn")?.addEventListener("click", async () => {
+  if (state.pdf) { state.pdfZoom = Math.min(3, Math.round(((state.pdfZoom || 1) + 0.15) * 100) / 100); await renderPDFPage(); }
+  else $("fontUp").click();
+});
 // Запоминаем выделение до нажатия кнопок меню: на мобильных браузерах
 // фокус панели иногда снимает визуальное выделение раньше обработчика click.
 let lastReaderSelection = "";
@@ -1676,12 +1684,13 @@ function showReaderHome() {
   $("readerView").classList.remove("hidden");
   $("readerBookTitle").textContent = "Читалка";
   $("readerMeta").textContent = "Ваша постоянная читалка";
-  $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Выберите книгу в библиотеке, чтобы открыть её здесь.</p><button id="readerChooseBookBtn" class="primary" type="button">Выбрать книгу</button></div>';
+  $("readerContent").innerHTML = '<div class="reader-empty-state"><div class="reader-empty-icon">📖</div><h2>Читалка</h2><p>Загрузите книгу с устройства или откройте уже добавленную в библиотеку.</p><div class="reader-empty-actions"><button id="readerChooseDeviceBtn" class="primary" type="button">＋ Загрузить с устройства</button><button id="readerChooseLibraryBtn" class="secondary" type="button">▦ Добавить из библиотеки</button></div></div>';
   $("prevBtn").disabled = true;
   $("nextBtn").disabled = true;
   $("pageStatus").textContent = "Готово к чтению";
   updateReaderProgress(0, "Прогресс чтения");
-  $("readerChooseBookBtn").onclick = () => $("backBtn").click();
+  $("readerChooseDeviceBtn").onclick = () => { pendingReaderOpenAfterUpload = true; $("fileInput").click(); };
+  $("readerChooseLibraryBtn").onclick = () => openReaderLibraryPicker("reader", true);
 }
 $("readerNavBtn")?.addEventListener("click", () => {
   document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
