@@ -52,6 +52,7 @@ async function previewRenderPDF(){
 }
 async function openStudioPreview(file){
   if(!file)return;
+  state.pendingFile=file;
   studioPreview.renderVersion=(studioPreview.renderVersion||0)+1;
   if(studioPreview.renderTask){try{studioPreview.renderTask.cancel();}catch{}studioPreview.renderTask=null;}
   if(studioPreview.objectUrl){URL.revokeObjectURL(studioPreview.objectUrl);studioPreview.objectUrl=null;}
