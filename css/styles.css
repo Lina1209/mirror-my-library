@@ -1128,3 +1128,20 @@ body.dark .reader-view.book-mode .reader-meta { color: #d7c7aa; }
 .studio-format-panel p{flex-basis:100%;margin:0;font-weight:600}
 .studio-format-panel button{min-width:110px;min-height:44px}
 @media(max-width:600px){.studio-format-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.studio-format-panel p{grid-column:1/-1}.studio-format-panel button{width:100%;min-width:0}}
+
+
+/* Reader accessibility: direct device import and visible text/page scaling */
+.reader-empty-actions{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+.reader-empty-actions .primary,.reader-empty-actions .secondary{min-height:44px}
+.reader-fixed-mode .reader-scale-btn{font-size:14px;font-weight:750}
+.reader-fixed-mode .reader-toolbar{gap:7px}
+.reader-fixed-mode .reader-content img,
+.reader-fixed-mode .reader-content canvas,
+.reader-fixed-mode .reader-content svg{max-width:100%;height:auto}
+@media(max-width:600px){
+  .reader-empty-actions{flex-direction:column;align-items:stretch;width:min(100%,300px);margin:18px auto 0}
+  .reader-empty-actions button{width:100%;min-height:46px}
+  .reader-fixed-mode .reader-toolbar{gap:5px;padding-left:8px;padding-right:8px}
+  .reader-fixed-mode .reader-top-action,.reader-fixed-mode .reader-menu-btn{width:36px;height:36px;flex-basis:36px}
+  .reader-fixed-mode .reader-scale-btn{font-size:12px}
+}
